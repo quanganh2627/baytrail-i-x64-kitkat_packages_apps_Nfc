@@ -964,13 +964,17 @@ static void nfc_jni_Discovery_notification_callback(void *pContext,
    jmethodID ctor;
    jfieldID f;
    const char * typeName;
-   jbyteArray tagUid;
+   jbyteArray tagUid = NULL;
    jbyteArray generalBytes = NULL;
    struct nfc_jni_native_data *nat;
    struct timespec ts;
    phNfc_sData_t data;
    int i;
    int target_index = 0; // Target that will be reported (if multiple can be >0)
+
+   jintArray techList = NULL;
+   jintArray handleList = NULL;
+   jintArray typeList = NULL;
 
    nat = (struct nfc_jni_native_data *)pContext;
    
@@ -1086,9 +1090,6 @@ static void nfc_jni_Discovery_notification_callback(void *pContext,
         e->SetObjectField(tag, f, tagUid);
 
         /* Generate technology list */
-        jintArray techList;
-        jintArray handleList;
-        jintArray typeList;
         nfc_jni_get_technology_tree(e, psRemoteDevList,
                 multi_protocol ? uNofRemoteDev : 1,
                 &techList, &handleList, &typeList);
@@ -1158,7 +1159,11 @@ static void nfc_jni_Discovery_notification_callback(void *pContext,
           }
       }
       e->DeleteLocalRef(tag);
-   } 
+      e->DeleteLocalRef(tagUid);
+      e->DeleteLocalRef(techList);
+      e->DeleteLocalRef(handleList);
+      e->DeleteLocalRef(typeList);
+   }
 }
 
 static void nfc_jni_init_callback(void *pContext, NFCSTATUS status)
@@ -1391,6 +1396,10 @@ static void nfc_jni_transaction_callback(void *context,
     if(tmp_array != NULL)
     {
        e->DeleteLocalRef(tmp_array);
+    }
+    if (data_array != NULL)
+    {
+        e->DeleteLocalRef(data_array);
     }
 }
 
