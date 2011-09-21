@@ -121,15 +121,16 @@ extern "C" {
 /* Utility macros for logging */
 #define GET_LEVEL(status) ((status)==NFCSTATUS_SUCCESS)?ANDROID_LOG_DEBUG:ANDROID_LOG_WARN
 
-#if 0
-  #define LOG_CALLBACK(funcName, status)  LOG_PRI(GET_LEVEL(status), LOG_TAG, "Callback: %s() - status=0x%04x[%s]", funcName, status, nfc_jni_get_status_name(status));
-  #define TRACE(...) ALOG(LOG_DEBUG, LOG_TAG, __VA_ARGS__)
-  #define TRACE_ENABLED 1
-#else
-  #define LOG_CALLBACK(...)
-  #define TRACE(...)
-  #define TRACE_ENABLED 0
-#endif
+#define LOG_CALLBACK(funcName, status)  \
+            (status)==NFCSTATUS_SUCCESS ? \
+            ALOGD_IF(gEnableLogging, "Callback: %s() - status=0x%04x[%s]", \
+                     funcName, status, nfc_jni_get_status_name(status)) : \
+            ALOGW_IF(gEnableLogging, "Callback: %s() - status=0x%04x[%s]", \
+                     funcName, status, nfc_jni_get_status_name(status))
+
+#define TRACE(...) LOGD_IF(gEnableLogging, __VA_ARGS__)
+
+extern bool_t gEnableLogging;
 
 struct nfc_jni_native_data
 {

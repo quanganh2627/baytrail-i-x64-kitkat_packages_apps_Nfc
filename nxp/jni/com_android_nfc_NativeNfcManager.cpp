@@ -58,6 +58,7 @@ static jmethodID cached_NfcManager_notifySeFieldDeactivated;
 static jmethodID cached_NfcManager_notifySeApduReceived;
 static jmethodID cached_NfcManager_notifySeMifareAccess;
 static jmethodID cached_NfcManager_notifySeEmvCardRemoval;
+bool_t gEnableLogging = FALSE;
 
 static jmethodID cached_NfcManager_notifyUiccReaderModeDetected;
 
@@ -83,6 +84,16 @@ static void nfc_jni_transaction_callback(void *context,
         phLibNfc_eSE_EvtType_t evt_type, phLibNfc_Handle handle,
         phLibNfc_uSeEvtInfo_t *evt_info, NFCSTATUS status);
 static bool performDownload(struct nfc_jni_native_data *nat, bool takeLock);
+
+void initLogging(void)
+{
+   char enable[PROPERTY_VALUE_MAX];
+   if (property_get("debug.nfc.JNI", enable, "0"))
+   {
+      gEnableLogging = atoi(enable);
+      LOGD("%s : EnableLogging = %d", __func__, gEnableLogging);
+   }
+}
 
 /*
  * Deferred callback called when client thread must be exited
@@ -316,6 +327,8 @@ static int nfc_jni_initialize(struct nfc_jni_native_data *nat) {
    nfc_pn544_device_t* pn544_dev = NULL;
    int ret = 0;
    uint8_t UiccSetModeOff[4] = {0x00, 0x9F, 0x17, 0x00};
+
+   initLogging();
 
    ALOGD("Start Initialization\n");
 
@@ -1202,14 +1215,12 @@ static void nfc_jni_transaction_callback(void *context,
 
                     if(aid != NULL)
                     {
-                        if (TRACE_ENABLED == 1) {
-                            char aid_str[AID_MAXLEN * 2 + 1];
-                            aid_str[0] = '\0';
-                            for (i = 0; i < (int) (aid->length) && i < AID_MAXLEN; i++) {
-                              snprintf(&aid_str[i*2], 3, "%02x", aid->buffer[i]);
-                            }
-                            ALOGD("> AID: %s", aid_str);
+                        char aid_str[AID_MAXLEN * 2 + 1];
+                        aid_str[0] = '\0';
+                        for (i = 0; i < (int) (aid->length) && i < AID_MAXLEN; i++) {
+                            snprintf(&aid_str[i*2], 3, "%02x", aid->buffer[i]);
                         }
+                        ALOGD("> AID: %s", aid_str);
                         tmp_array = e->NewByteArray(aid->length);
                         if (tmp_array == NULL)
                         {
