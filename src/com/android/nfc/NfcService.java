@@ -83,7 +83,6 @@ import java.util.TimerTask;
 public class NfcService implements DeviceHostListener {
     private static final String ACTION_MASTER_CLEAR_NOTIFICATION = "android.intent.action.MASTER_CLEAR_NOTIFICATION";
 
-    static final boolean DBG = false;
     static final String TAG = "NfcService";
 
     public static final String SERVICE_NAME = "nfc";
@@ -717,13 +716,17 @@ public class NfcService implements DeviceHostListener {
             // to avoid the tag being discovered again.
             maybeDisconnectTarget();
 
-            if(DBG) Log.d(TAG,"mNfcPollingEnabled set to false when NFC OFF");
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG,"mNfcPollingEnabled set to false when NFC OFF");
+            }
             mNfcPollingEnabled = false;
 
             mNfcDispatcher.setForegroundDispatch(null, null, null);
 
             boolean result = mDeviceHost.deinitialize();
-            if (DBG) Log.d(TAG, "mDeviceHost.deinitialize() = " + result);
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG, "mDeviceHost.deinitialize() = " + result);
+            }
 
             watchDog.cancel();
 
@@ -1091,7 +1094,9 @@ public class NfcService implements DeviceHostListener {
         public int activeSwp() throws RemoteException {
             mContext.enforceCallingOrSelfPermission(ADMIN_PERM, ADMIN_PERM_ERROR);
 
-            if (DBG) Log.d(TAG, "activeSwp");
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG, "activeSwp");
+            }
             // Check if NFC is enabled
             if (!isNfcEnabled()) {
                 Log.e(TAG, "activeSwp - ERROR_NOT_INITIALIZED");
@@ -2021,7 +2026,9 @@ public class NfcService implements DeviceHostListener {
             mObjectMap.clear();
         }
         for (Object o : objectsToDisconnect) {
-            if (DBG) Log.d(TAG, "disconnecting " + o.getClass().getName());
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG, "disconnecting " + o.getClass().getName());
+            }
             if (o instanceof TagEndpoint) {
                 // Disconnect from tags
                 TagEndpoint tag = (TagEndpoint) o;
@@ -2117,7 +2124,9 @@ public class NfcService implements DeviceHostListener {
                 }
 
                 case MSG_NDEF_TAG:
-                    if (DBG) Log.d(TAG, "Tag detected, notifying applications");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "Tag detected, notifying applications");
+                    }
                     TagEndpoint tag = (TagEndpoint) msg.obj;
                     playSound(SOUND_START);
                     NdefMessage ndefMsg = tag.findAndReadNdef();
@@ -2144,31 +2153,42 @@ public class NfcService implements DeviceHostListener {
                     TransactionIntent.setAction(NfcAdapter.ACTION_TRANSACTION_DETECTED);
                     TransactionIntent.putExtra(NfcAdapter.EXTRA_AID, transactionInfo.first);
                     TransactionIntent.putExtra(NfcAdapter.EXTRA_DATA, transactionInfo.second);
-                    if (DBG)
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
                         Log.d(TAG, "Start Activity Card Emulation event");
+                    }
                     mContext.sendBroadcast(TransactionIntent, NFC_PERM);
                     break;
 
                 case MSG_CONNECTIVITY_EVENT:
-                    if (DBG) Log.d(TAG, "SE EVENT CONNECTIVITY");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "SE EVENT CONNECTIVITY");
+                    }
                     Intent eventConnectivityIntent = new Intent();
                     eventConnectivityIntent
                             .setAction(NfcAdapter.ACTION_CONNECTIVITY_EVENT_DETECTED);
-                    if (DBG) Log.d(TAG, "Broadcasting Intent");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "Broadcasting Intent");
+                    }
                     mContext.sendBroadcast(eventConnectivityIntent, NFC_PERM);
                     break;
 
                 case MSG_SE_EMV_CARD_REMOVAL:
-                    if (DBG) Log.d(TAG, "Card Removal message");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "Card Removal message");
+                    }
                     /* Send broadcast */
                     Intent cardRemovalIntent = new Intent();
                     cardRemovalIntent.setAction(ACTION_EMV_CARD_REMOVAL);
-                    if (DBG) Log.d(TAG, "Broadcasting " + ACTION_EMV_CARD_REMOVAL);
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "Broadcasting " + ACTION_EMV_CARD_REMOVAL);
+                    }
                     sendSeBroadcast(cardRemovalIntent);
                     break;
 
                 case MSG_SE_APDU_RECEIVED:
-                    if (DBG) Log.d(TAG, "APDU Received message");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "APDU Received message");
+                    }
                     byte[] apduBytes = (byte[]) msg.obj;
                     /* Send broadcast */
                     Intent apduReceivedIntent = new Intent();
@@ -2176,22 +2196,30 @@ public class NfcService implements DeviceHostListener {
                     if (apduBytes != null && apduBytes.length > 0) {
                         apduReceivedIntent.putExtra(EXTRA_APDU_BYTES, apduBytes);
                     }
-                    if (DBG) Log.d(TAG, "Broadcasting " + ACTION_APDU_RECEIVED);
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "Broadcasting " + ACTION_APDU_RECEIVED);
+                    }
                     sendSeBroadcast(apduReceivedIntent);
                     break;
 
                 case MSG_SE_MIFARE_ACCESS:
-                    if (DBG) Log.d(TAG, "MIFARE access message");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "MIFARE access message");
+                    }
                     /* Send broadcast */
                     byte[] mifareCmd = (byte[]) msg.obj;
                     Intent mifareAccessIntent = new Intent();
                     mifareAccessIntent.setAction(ACTION_MIFARE_ACCESS_DETECTED);
                     if (mifareCmd != null && mifareCmd.length > 1) {
                         int mifareBlock = mifareCmd[1] & 0xff;
-                        if (DBG) Log.d(TAG, "Mifare Block=" + mifareBlock);
+                        if (Log.isLoggable(TAG, Log.DEBUG)) {
+                            Log.d(TAG, "Mifare Block=" + mifareBlock);
+                        }
                         mifareAccessIntent.putExtra(EXTRA_MIFARE_BLOCK, mifareBlock);
                     }
-                    if (DBG) Log.d(TAG, "Broadcasting " + ACTION_MIFARE_ACCESS_DETECTED);
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "Broadcasting " + ACTION_MIFARE_ACCESS_DETECTED);
+                    }
                     sendSeBroadcast(mifareAccessIntent);
                     break;
 
@@ -2209,10 +2237,14 @@ public class NfcService implements DeviceHostListener {
                         if (mObjectMap.remove(device.getHandle()) != null) {
                             /* Disconnect if we are initiator */
                             if (device.getMode() == NfcDepEndpoint.MODE_P2P_TARGET) {
-                                if (DBG) Log.d(TAG, "disconnecting from target");
+                                if (Log.isLoggable(TAG, Log.DEBUG)) {
+                                    Log.d(TAG, "disconnecting from target");
+                                }
                                 needsDisconnect = true;
                             } else {
-                                if (DBG) Log.d(TAG, "not disconnecting from initiator");
+                                if (Log.isLoggable(TAG, Log.DEBUG)) {
+                                    Log.d(TAG, "not disconnecting from initiator");
+                                }
                             }
                         }
                     }
@@ -2225,15 +2257,21 @@ public class NfcService implements DeviceHostListener {
 
                 case MSG_TARGET_DESELECTED:
                     /* Broadcast Intent Target Deselected */
-                    if (DBG) Log.d(TAG, "Target Deselected");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "Target Deselected");
+                    }
                     Intent intent = new Intent();
                     intent.setAction(NativeNfcManager.INTERNAL_TARGET_DESELECTED_ACTION);
-                    if (DBG) Log.d(TAG, "Broadcasting Intent");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "Broadcasting Intent");
+                    }
                     mContext.sendOrderedBroadcast(intent, NFC_PERM);
                     break;
 
                 case MSG_SE_FIELD_ACTIVATED: {
-                    if (DBG) Log.d(TAG, "SE FIELD ACTIVATED");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "SE FIELD ACTIVATED");
+                    }
                     Intent eventFieldOnIntent = new Intent();
                     eventFieldOnIntent.setAction(ACTION_RF_FIELD_ON_DETECTED);
                     sendSeBroadcast(eventFieldOnIntent);
@@ -2241,7 +2279,9 @@ public class NfcService implements DeviceHostListener {
                 }
 
                 case MSG_SE_FIELD_DEACTIVATED: {
-                    if (DBG) Log.d(TAG, "SE FIELD DEACTIVATED");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "SE FIELD DEACTIVATED");
+                    }
                     Intent eventFieldOffIntent = new Intent();
                     eventFieldOffIntent.setAction(ACTION_RF_FIELD_OFF_DETECTED);
                     sendSeBroadcast(eventFieldOffIntent);
@@ -2249,7 +2289,9 @@ public class NfcService implements DeviceHostListener {
                 }
 
                 case MSG_SE_LISTEN_ACTIVATED: {
-                    if (DBG) Log.d(TAG, "SE LISTEN MODE ACTIVATED");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "SE LISTEN MODE ACTIVATED");
+                    }
                     Intent listenModeActivated = new Intent();
                     listenModeActivated.setAction(ACTION_SE_LISTEN_ACTIVATED);
                     sendSeBroadcast(listenModeActivated);
@@ -2257,7 +2299,9 @@ public class NfcService implements DeviceHostListener {
                 }
 
                 case MSG_SE_LISTEN_DEACTIVATED: {
-                    if (DBG) Log.d(TAG, "SE LISTEN MODE DEACTIVATED");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "SE LISTEN MODE DEACTIVATED");
+                    }
                     Intent listenModeDeactivated = new Intent();
                     listenModeDeactivated.setAction(ACTION_SE_LISTEN_DEACTIVATED);
                     sendSeBroadcast(listenModeDeactivated);
@@ -2291,13 +2335,17 @@ public class NfcService implements DeviceHostListener {
             Log.d(TAG, "LLCP Activation message");
 
             if (device.getMode() == NfcDepEndpoint.MODE_P2P_TARGET) {
-                if (DBG) Log.d(TAG, "NativeP2pDevice.MODE_P2P_TARGET");
+                if (Log.isLoggable(TAG, Log.DEBUG)) {
+                    Log.d(TAG, "NativeP2pDevice.MODE_P2P_TARGET");
+                }
                 if (device.connect()) {
                     /* Check LLCP compliancy */
                     if (mDeviceHost.doCheckLlcp()) {
                         /* Activate LLCP Link */
                         if (mDeviceHost.doActivateLlcp()) {
-                            if (DBG) Log.d(TAG, "Initiator Activate LLCP OK");
+                            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                                Log.d(TAG, "Initiator Activate LLCP OK");
+                            }
                             synchronized (NfcService.this) {
                                 // Register P2P device
                                 mObjectMap.put(device.getHandle(), device);
@@ -2310,23 +2358,31 @@ public class NfcService implements DeviceHostListener {
                             device.disconnect();
                         }
                     } else {
-                        if (DBG) Log.d(TAG, "Remote Target does not support LLCP. Disconnect.");
+                        if (Log.isLoggable(TAG, Log.DEBUG)) {
+                            Log.d(TAG, "Remote Target does not support LLCP. Disconnect.");
+                        }
                         device.disconnect();
                     }
                 } else {
-                    if (DBG) Log.d(TAG, "Cannot connect remote Target. Polling loop restarted.");
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "Cannot connect remote Target. Polling loop restarted.");
+                    }
                     /*
                      * The polling loop should have been restarted in failing
                      * doConnect
                      */
                 }
             } else if (device.getMode() == NfcDepEndpoint.MODE_P2P_INITIATOR) {
-                if (DBG) Log.d(TAG, "NativeP2pDevice.MODE_P2P_INITIATOR");
+                if (Log.isLoggable(TAG, Log.DEBUG)) {
+                    Log.d(TAG, "NativeP2pDevice.MODE_P2P_INITIATOR");
+                }
                 /* Check LLCP compliancy */
                 if (mDeviceHost.doCheckLlcp()) {
                     /* Activate LLCP Link */
                     if (mDeviceHost.doActivateLlcp()) {
-                        if (DBG) Log.d(TAG, "Target Activate LLCP OK");
+                        if (Log.isLoggable(TAG, Log.DEBUG)) {
+                            Log.d(TAG, "Target Activate LLCP OK");
+                        }
                         synchronized (NfcService.this) {
                             // Register P2P device
                             mObjectMap.put(device.getHandle(), device);
