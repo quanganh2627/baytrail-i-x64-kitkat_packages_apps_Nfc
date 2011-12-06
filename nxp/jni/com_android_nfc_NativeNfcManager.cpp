@@ -1388,6 +1388,7 @@ static void nfc_jni_start_discovery_locked(struct nfc_jni_native_data *nat, bool
 {
    NFCSTATUS ret;
    struct nfc_jni_callback_data cb_data;
+   unsigned int no_retry = 0;
 
    /* Create the local semaphore */
    if (!nfc_cb_data_init(&cb_data, NULL))
@@ -1407,19 +1408,26 @@ static void nfc_jni_start_discovery_locked(struct nfc_jni_native_data *nat, bool
 
    /* Start Polling loop */
    TRACE("******  Start NFC Discovery ******");
-   REENTRANCE_LOCK();
-   ret = phLibNfc_Mgt_ConfigureDiscovery(resume ? NFC_DISCOVERY_RESUME : NFC_DISCOVERY_CONFIG,
-      nat->discovery_cfg, nfc_jni_discover_callback, (void *)&cb_data);
-   REENTRANCE_UNLOCK();
-   TRACE("phLibNfc_Mgt_ConfigureDiscovery(%s-%s-%s-%s-%s-%s, %s-%x-%x) returned 0x%08x\n",
-      nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso14443A==TRUE?"3A":"",
-      nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso14443B==TRUE?"3B":"",
-      nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableFelica212==TRUE?"F2":"",
-      nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableFelica424==TRUE?"F4":"",
-      nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableNfcActive==TRUE?"NFC":"",
-      nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso15693==TRUE?"RFID":"",
-      nat->discovery_cfg.PollDevInfo.PollCfgInfo.DisableCardEmulation==FALSE?"CE":"",
-      nat->discovery_cfg.NfcIP_Mode, nat->discovery_cfg.Duration, ret);
+   do {
+        REENTRANCE_LOCK();
+        ret = phLibNfc_Mgt_ConfigureDiscovery(resume ? NFC_DISCOVERY_RESUME : NFC_DISCOVERY_CONFIG,
+        nat->discovery_cfg, nfc_jni_discover_callback, (void *)&cb_data);
+        REENTRANCE_UNLOCK();
+        TRACE("phLibNfc_Mgt_ConfigureDiscovery(%s-%s-%s-%s-%s-%s, %s-%x-%x) returned 0x%08x no = %d\n",
+            nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso14443A==TRUE?"3A":"",
+            nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso14443B==TRUE?"3B":"",
+            nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableFelica212==TRUE?"F2":"",
+            nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableFelica424==TRUE?"F4":"",
+            nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableNfcActive==TRUE?"NFC":"",
+            nat->discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso15693==TRUE?"RFID":"",
+            nat->discovery_cfg.PollDevInfo.PollCfgInfo.DisableCardEmulation==FALSE?"CE":"",
+            nat->discovery_cfg.NfcIP_Mode, nat->discovery_cfg.Duration, ret);
+
+        no_retry++;
+        if (ret == NFCSTATUS_BUSY) {
+           usleep(10000);
+        }
+   } while ((ret == NFCSTATUS_BUSY) && (no_retry<3));
 
    if(ret != NFCSTATUS_PENDING)
    {
@@ -1443,6 +1451,7 @@ static void nfc_jni_stop_discovery_locked(struct nfc_jni_native_data *nat)
    phLibNfc_sADD_Cfg_t discovery_cfg;
    NFCSTATUS ret;
    struct nfc_jni_callback_data cb_data;
+   unsigned int no_retry = 0;
 
    /* Create the local semaphore */
    if (!nfc_cb_data_init(&cb_data, NULL))
@@ -1457,18 +1466,26 @@ static void nfc_jni_stop_discovery_locked(struct nfc_jni_native_data *nat)
  
    /* Start Polling loop */
    TRACE("******  Stop NFC Discovery ******");
-   REENTRANCE_LOCK();
-   ret = phLibNfc_Mgt_ConfigureDiscovery(NFC_DISCOVERY_CONFIG,discovery_cfg, nfc_jni_discover_callback, (void *)&cb_data);
-   REENTRANCE_UNLOCK();
-   TRACE("phLibNfc_Mgt_ConfigureDiscovery(%s-%s-%s-%s-%s-%s, %s-%x-%x) returned 0x%08x\n",
-      discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso14443A==TRUE?"3A":"",
-      discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso14443B==TRUE?"3B":"",
-      discovery_cfg.PollDevInfo.PollCfgInfo.EnableFelica212==TRUE?"F2":"",
-      discovery_cfg.PollDevInfo.PollCfgInfo.EnableFelica424==TRUE?"F4":"",
-      discovery_cfg.PollDevInfo.PollCfgInfo.EnableNfcActive==TRUE?"NFC":"",
-      discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso15693==TRUE?"RFID":"",
-      discovery_cfg.PollDevInfo.PollCfgInfo.DisableCardEmulation==FALSE?"CE":"",
-      discovery_cfg.NfcIP_Mode, discovery_cfg.Duration, ret);
+   do {
+       REENTRANCE_LOCK();
+       ret = phLibNfc_Mgt_ConfigureDiscovery(NFC_DISCOVERY_CONFIG,discovery_cfg, nfc_jni_discover_callback, (void *)&cb_data);
+       REENTRANCE_UNLOCK();
+       TRACE("phLibNfc_Mgt_ConfigureDiscovery(%s-%s-%s-%s-%s-%s, %s-%x-%x) returned 0x%08x\n",
+          discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso14443A==TRUE?"3A":"",
+          discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso14443B==TRUE?"3B":"",
+          discovery_cfg.PollDevInfo.PollCfgInfo.EnableFelica212==TRUE?"F2":"",
+          discovery_cfg.PollDevInfo.PollCfgInfo.EnableFelica424==TRUE?"F4":"",
+          discovery_cfg.PollDevInfo.PollCfgInfo.EnableNfcActive==TRUE?"NFC":"",
+          discovery_cfg.PollDevInfo.PollCfgInfo.EnableIso15693==TRUE?"RFID":"",
+          discovery_cfg.PollDevInfo.PollCfgInfo.DisableCardEmulation==FALSE?"CE":"",
+          discovery_cfg.NfcIP_Mode, discovery_cfg.Duration, ret);
+
+       if (ret == NFCSTATUS_BUSY) {
+           usleep(10000);
+       }
+       no_retry++;
+   } while ((ret == NFCSTATUS_BUSY) && (no_retry<3));
+
 
    if(ret != NFCSTATUS_PENDING)
    {
