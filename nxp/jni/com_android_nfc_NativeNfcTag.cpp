@@ -625,7 +625,10 @@ static jboolean com_android_nfc_NativeNfcTag_doDisconnect(JNIEnv *e, jobject o)
     if(status != NFCSTATUS_PENDING)
     {
         ALOGE("phLibNfc_RemoteDev_Disconnect(%x) returned 0x%04x[%s]", handle, status, nfc_jni_get_status_name(status));
-        nfc_jni_restart_discovery_locked(nfc_jni_get_nat_ext(e));
+        if (status != NFCSTATUS_NOT_INITIALISED)
+        {
+            nfc_jni_restart_discovery_locked(nfc_jni_get_nat_ext(e));
+        }
         goto clean_and_return;
     }
     TRACE("phLibNfc_RemoteDev_Disconnect(%x) returned 0x%04x[%s]", handle, status, nfc_jni_get_status_name(status));
