@@ -203,6 +203,7 @@ nfc_jni_native_monitor_t* nfc_jni_init_monitor(void)
       }
 
       LIST_INIT(&nfc_jni_native_monitor->incoming_socket_head);
+      LIST_INIT(&nfc_jni_native_monitor->server_socket_head);
 
       if(pthread_mutex_init(&nfc_jni_native_monitor->incoming_socket_mutex, NULL) == -1)
       {

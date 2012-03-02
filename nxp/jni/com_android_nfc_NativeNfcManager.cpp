@@ -2357,6 +2357,15 @@ static jobject com_android_nfc_NfcManager_doCreateLlcpServiceSocket(JNIEnv *e, j
    jobject serviceSocket = NULL;
    jclass clsNativeLlcpServiceSocket;
    jfieldID f;
+   nfc_jni_listen_data_t * pListenData = NULL;
+   nfc_jni_native_monitor * pMonitor = nfc_jni_get_monitor();
+
+   pListenData = (nfc_jni_listen_data_t*)malloc(sizeof(nfc_jni_listen_data_t));
+   if (pListenData == NULL)
+   {
+      LOGE("Failed to create structure to handle server LLCP connection request");
+      return NULL;
+   }
 
    /* Retrieve native structure address */
    nat = nfc_jni_get_nat(e, o);
@@ -2446,6 +2455,9 @@ static jobject com_android_nfc_NfcManager_doCreateLlcpServiceSocket(JNIEnv *e, j
       ALOGE("Llcp Socket get object class error");
       goto error;
    }
+
+   pListenData->pServerSocket = hLlcpSocket;
+   LIST_INSERT_HEAD(&pMonitor->server_socket_head, pListenData, entries);
 
    /* Set socket handle */
    f = e->GetFieldID(clsNativeLlcpServiceSocket, "mHandle", "I");

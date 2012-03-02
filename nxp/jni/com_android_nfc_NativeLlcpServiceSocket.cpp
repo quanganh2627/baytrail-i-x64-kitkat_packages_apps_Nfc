@@ -64,6 +64,52 @@ static phLibNfc_Handle getIncomingSocket(nfc_jni_native_monitor_t * pMonitor,
    return pIncomingSocket;
 }
 
+static pthread_mutex_t server_socket_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static bool getServerSocketClosing(nfc_jni_native_monitor_t * pMonitor,
+                                                 phLibNfc_Handle hServerSocket)
+{
+   nfc_jni_listen_data_t * pListenData;
+   bool bServerSocketClosing = FALSE;
+
+   /* Look for a corresponding server socket */
+   pthread_mutex_lock(&server_socket_mutex);
+   LIST_FOREACH(pListenData, &pMonitor->server_socket_head, entries)
+   {
+      if (pListenData->pServerSocket == hServerSocket)
+      {
+         bServerSocketClosing = pListenData->bServerSocketClosing;
+         if (bServerSocketClosing) {
+            LIST_REMOVE(pListenData, entries);
+            free(pListenData);
+         }
+         break;
+      }
+   }
+   pthread_mutex_unlock(&server_socket_mutex);
+
+   return bServerSocketClosing;
+}
+
+static void setServerSocketClosing(nfc_jni_native_monitor_t * pMonitor,
+                                                 phLibNfc_Handle hServerSocket,
+                                                 bool serverSocketClosing)
+{
+   nfc_jni_listen_data_t * pListenData;
+
+   /* Look for a corresponding server socket */
+   pthread_mutex_lock(&server_socket_mutex);
+   LIST_FOREACH(pListenData, &pMonitor->server_socket_head, entries)
+   {
+      if (pListenData->pServerSocket == hServerSocket)
+      {
+         pListenData->bServerSocketClosing = serverSocketClosing;
+         break;
+      }
+   }
+   pthread_mutex_unlock(&server_socket_mutex);
+}
+
 /*
  * Methods
  */ 
@@ -97,12 +143,19 @@ static jobject com_NativeLlcpServiceSocket_doAccept(JNIEnv *e, jobject o, jint m
    sWorkingBuffer.buffer = (uint8_t*)malloc((miu*rw)+miu+linearBufferLength);
    sWorkingBuffer.length = (miu*rw)+ miu + linearBufferLength;
 
+   /* Reset the flag */
+   setServerSocketClosing(pMonitor, hServerSocket, FALSE);
+
    while(cb_data.status != NFCSTATUS_SUCCESS)
    {
       /* Wait for tag Notification */
       pthread_mutex_lock(&pMonitor->incoming_socket_mutex);
       while ((hIncomingSocket = getIncomingSocket(pMonitor, hServerSocket)) == NULL) {
          pthread_cond_wait(&pMonitor->incoming_socket_cond, &pMonitor->incoming_socket_mutex);
+         if (getServerSocketClosing(pMonitor, hServerSocket)) {
+             pthread_mutex_unlock(&pMonitor->incoming_socket_mutex);
+             goto clean_and_return;;
+         }
       }
       pthread_mutex_unlock(&pMonitor->incoming_socket_mutex);
 
@@ -183,6 +236,9 @@ static jboolean com_NativeLlcpServiceSocket_doClose(JNIEnv *e, jobject o)
 
    /* Retrieve socket handle */
    hLlcpSocket = nfc_jni_get_nfc_socket_handle(e,o);
+
+   /* Set the flag to break the dead lock in accept() */
+   setServerSocketClosing(pMonitor, hLlcpSocket, TRUE);
 
    pthread_mutex_lock(&pMonitor->incoming_socket_mutex);
    /* TODO: implement accept abort */
