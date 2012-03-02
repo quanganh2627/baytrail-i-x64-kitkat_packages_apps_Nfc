@@ -1962,18 +1962,8 @@ static void com_android_nfc_NfcManager_doSelectSecureElement(JNIEnv *e, jobject 
     TRACE("phLibNfc_SE_SetMode(0x%08x, ...)", seID);
     /* Set SE mode - Virtual */
     REENTRANCE_LOCK();
-    if(seID == 0xABCDF0)
-    {
-        TRACE("Select UICC");
-        ret = phLibNfc_SE_SetMode(seID, phLibNfc_SE_ActModeVirtual, nfc_jni_se_set_mode_callback,
+    ret = phLibNfc_SE_SetMode(seID, phLibNfc_SE_ActModeVirtual, nfc_jni_se_set_mode_callback,
                 (void *)&cb_data);
-    }
-    else
-    {
-        TRACE("Select SMX");
-        ret = phLibNfc_SE_SetMode(seID, phLibNfc_SE_ActModeVirtualVolatile, nfc_jni_se_set_mode_callback,
-                (void *)&cb_data);
-    }
     REENTRANCE_UNLOCK();
     if (ret != NFCSTATUS_PENDING) {
         ALOGD("phLibNfc_SE_SetMode() returned 0x%04x[%s]", ret, nfc_jni_get_status_name(ret));
@@ -2010,20 +2000,9 @@ static void com_android_nfc_NfcManager_doDeselectSecureElement(JNIEnv *e, jobjec
     TRACE("****** Deselect Secure Element ******");
 
     TRACE("phLibNfc_SE_SetMode(0x%02x, ...)", seID);
-    /* Set SE mode - Default */
+    /* Set SE mode - OFF */
     REENTRANCE_LOCK();
-    if(seID == 0xABCDF0)
-    {
-        TRACE("Deselect UICC");
-        ret = phLibNfc_SE_SetMode(seID, phLibNfc_SE_ActModeOff,
-                nfc_jni_se_set_mode_callback, (void *)&cb_data);
-    }
-    else
-    {
-        TRACE("Deselect SMX");
-        ret = phLibNfc_SE_SetMode(seID, phLibNfc_SE_ActModeDefault,
-                nfc_jni_se_set_mode_callback, (void *)&cb_data);
-    }
+    ret = phLibNfc_SE_SetMode(seID, phLibNfc_SE_ActModeOff, nfc_jni_se_set_mode_callback, (void *)&cb_data);
     REENTRANCE_UNLOCK();
        
     TRACE("phLibNfc_SE_SetMode returned 0x%02x", ret);
