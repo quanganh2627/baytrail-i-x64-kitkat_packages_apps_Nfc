@@ -136,6 +136,7 @@ public class P2pLinkManager implements Handler.Callback, P2pEventListener.Callba
     static final int MSG_START_ECHOSERVER = 5;
     static final int MSG_STOP_ECHOSERVER = 6;
     static final int MSG_HANDOVER_NOT_SUPPORTED = 7;
+    static final int MSG_SET_NDEF_TO_SEND = 8;
 
     // values for mLinkState
     static final int LINK_STATE_DOWN = 1;
@@ -209,6 +210,24 @@ public class P2pLinkManager implements Handler.Callback, P2pEventListener.Callba
         mDefaultRwSize = defaultRwSize;
      }
 
+
+
+    final class P2PLinkManagerHandler extends Handler {
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case MSG_SET_NDEF_TO_SEND: {
+                    if (DBG) Log.d(TAG, "MSG_SET_NDEF_TO_SEND");
+                    synchronized (P2pLinkManager.this) {
+                        mCallbackNdef = (INdefPushCallback)msg.obj;
+                    }
+                }
+            }
+        }
+    }
+
+    private P2PLinkManagerHandler mSetNdefHandler = new P2PLinkManagerHandler();
+
     /**
      * May be called from any thread.
      * Assumes that NFC is already on if any parameter is true.
@@ -243,9 +262,10 @@ public class P2pLinkManager implements Handler.Callback, P2pEventListener.Callba
      * active as soon as P2P send is enabled.
      */
     public void setNdefCallback(INdefPushCallback callbackNdef) {
-        synchronized (this) {
-            mCallbackNdef = callbackNdef;
-        }
+        Message msg = mSetNdefHandler.obtainMessage();
+        msg.what = MSG_SET_NDEF_TO_SEND;
+        msg.obj = callbackNdef;
+        mSetNdefHandler.sendMessage(msg);
     }
 
     /**
