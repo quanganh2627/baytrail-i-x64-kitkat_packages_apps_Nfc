@@ -795,6 +795,12 @@ static void nfc_jni_llcp_linkStatus_callback(void *pContext,
    JNIEnv *e;
    NFCSTATUS status;
 
+   if (g_eLinkStatus == eLinkStatus)
+   {
+       /* Link status has not been changed -> exit. */
+       return;
+   }
+
    struct nfc_jni_callback_data * pContextData =  (struct nfc_jni_callback_data*)pContext;
 
    struct nfc_jni_native_data *nat = (nfc_jni_native_data *)pContextData->pContext;
