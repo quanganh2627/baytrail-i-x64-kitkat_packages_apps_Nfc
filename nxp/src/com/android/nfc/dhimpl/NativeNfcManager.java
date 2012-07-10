@@ -182,6 +182,8 @@ public class NativeNfcManager implements DeviceHost {
     @Override
     public native void doDeselectSecureElement(int seID);
 
+    @Override
+    public native void doUiccSetSwpMode(int mode);
 
     private native NativeLlcpConnectionlessSocket doCreateLlcpConnectionlessSocket(int nSap,
             String sn);
@@ -389,6 +391,13 @@ public class NativeNfcManager implements DeviceHost {
      private void notifyConnectivityListeners() {
          mListener.onConnectivityEvent();
      }
+
+    /**
+     * Notifies UICC reader mode event
+     */
+    private void notifyUiccReaderModeListeners(NativeNfcTag tag) {
+        mListener.onUiccReaderModeDetected(tag);
+    }
 
     /**
      * Notifies P2P Device detected, to activate LLCP link
