@@ -69,6 +69,8 @@ public interface DeviceHost {
         public void onSeEmvCardRemoval();
 
         public void onSeMifareAccess(byte[] block);
+
+        public void onUiccReaderModeDetected(TagEndpoint tag);
     }
 
     public interface TagEndpoint {
@@ -204,6 +206,8 @@ public interface DeviceHost {
 
     public LlcpConnectionlessSocket createLlcpConnectionlessSocket(int nSap, String sn)
             throws LlcpException;
+
+    public void doUiccSetSwpMode(int mode);
 
     public LlcpServerSocket createLlcpServerSocket(int nSap, String sn, int miu,
             int rw, int linearBufferLength) throws LlcpException;

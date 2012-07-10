@@ -125,6 +125,7 @@ public class NfcService implements DeviceHostListener {
     static final int MSG_SE_LISTEN_ACTIVATED = 13;
     static final int MSG_SE_LISTEN_DEACTIVATED = 14;
     static final int MSG_CONNECTIVITY_EVENT = 15;
+    static final int MSG_UICC_READER_MODE_EVENT = 16;
 
     static final int TASK_ENABLE = 1;
     static final int TASK_DISABLE = 2;
@@ -186,6 +187,13 @@ public class NfcService implements DeviceHostListener {
             "com.android.nfc_extras.action.SE_LISTEN_DEACTIVATED";
 
     // Secure element
+    // SE modes - should be mapped with enum definitions in libnfc
+    private static final int SE_ACTIVE_MODE_WIRED = 0;
+    private static final int SE_ACTIVE_MODE_DEFAULT = 1;
+    private static final int SE_ACTIVE_MODE_VIRTUAL = 2;
+    private static final int SE_ACTIVE_MODE_OFF = 3;
+    private static final int SE_ACTIVE_MODE_VIRTUALVOLATILE = 4;
+
     private static final int SECURE_ELEMENT_UICC_ID = 11259376;
     private static final int SECURE_ELEMENT_SMX_ID = 11259375;
     private int mSelectedSeId = 0;
@@ -311,6 +319,11 @@ public class NfcService implements DeviceHostListener {
     @Override
     public void onLlcpLinkDeactivated(NfcDepEndpoint device) {
         sendMessage(NfcService.MSG_LLCP_LINK_DEACTIVATED, device);
+    }
+
+    @Override
+    public void onUiccReaderModeDetected(TagEndpoint tag) {
+        sendMessage(NfcService.MSG_UICC_READER_MODE_EVENT, tag);
     }
 
     @Override
@@ -2099,6 +2112,9 @@ public class NfcService implements DeviceHostListener {
     }
 
     final class NfcServiceHandler extends Handler {
+
+        boolean isUICCReading = false;
+
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
@@ -2131,16 +2147,21 @@ public class NfcService implements DeviceHostListener {
                     playSound(SOUND_START);
                     NdefMessage ndefMsg = tag.findAndReadNdef();
 
-                    if (ndefMsg != null) {
+                    if (isUICCReading) {
                         tag.startPresenceChecking();
-                        dispatchTagEndpoint(tag);
+                        isUICCReading = false;
                     } else {
-                        if (tag.reconnect()) {
+                        if (ndefMsg != null) {
                             tag.startPresenceChecking();
                             dispatchTagEndpoint(tag);
                         } else {
-                            tag.disconnect();
-                            playSound(SOUND_ERROR);
+                            if (tag.reconnect()) {
+                                tag.startPresenceChecking();
+                                dispatchTagEndpoint(tag);
+                            } else {
+                                tag.disconnect();
+                                playSound(SOUND_ERROR);
+                            }
                         }
                     }
                     break;
@@ -2200,6 +2221,19 @@ public class NfcService implements DeviceHostListener {
                         Log.d(TAG, "Broadcasting " + ACTION_APDU_RECEIVED);
                     }
                     sendSeBroadcast(apduReceivedIntent);
+                    break;
+
+                case MSG_UICC_READER_MODE_EVENT:
+                    if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG, "UICC READER MODE EVENT");
+                    TagEndpoint uiccTag = (TagEndpoint) msg.obj;
+                    int [] technologies = uiccTag.getTechList();
+                    isUICCReading = true;
+                    mDeviceHost.doUiccSetSwpMode(SE_ACTIVE_MODE_VIRTUALVOLATILE);
+                    if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG, "UICC READER MODE EVENT - CONNECT TAG");
+                    uiccTag.connect(technologies[0]);
+                    if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG, "UICC READER MODE EVENT - DISCONNECT TAG");
+                    uiccTag.disconnect();
+                    mDeviceHost.doUiccSetSwpMode(SE_ACTIVE_MODE_DEFAULT);
                     break;
 
                 case MSG_SE_MIFARE_ACCESS:
