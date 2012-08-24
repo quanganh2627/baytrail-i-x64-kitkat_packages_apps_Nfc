@@ -2122,6 +2122,12 @@ static void com_android_nfc_NfcManager_doDeselectSecureElement(JNIEnv *e, jobjec
     TRACE("****** Deselect Secure Element ******");
 
     TRACE("phLibNfc_SE_SetMode(0x%02x, ...)", seID);
+
+    if(LIBNFC_SE_BASE_HANDLE + LIBNFC_SE_UICC_INDEX == seID) {
+        TRACE("Waiting a bit before deselecting UICC...");
+        sleep(1);
+    }
+
     /* Set SE mode - OFF */
     REENTRANCE_LOCK();
     ret = phLibNfc_SE_SetMode(seID, phLibNfc_SE_ActModeOff, nfc_jni_se_set_mode_callback, (void *)&cb_data);
