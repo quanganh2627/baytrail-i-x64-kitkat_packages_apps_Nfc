@@ -108,6 +108,7 @@ public class NfcService implements DeviceHostListener {
     private static final boolean SECURE_ELEMENT_ON_DEFAULT = false;
     private static final String PREF_SECURE_ELEMENT_ID = "secure_element_id";
     private static final int SECURE_ELEMENT_ID_DEFAULT = 0;
+    private static final String PREF_CE_ROUTE = "ce_route";
 
 
     static final int MSG_NDEF_TAG = 0;
@@ -141,6 +142,9 @@ public class NfcService implements DeviceHostListener {
     // Must keep in sync with com.android.nfc_extras
     static final int ROUTE_OFF = 1;
     static final int ROUTE_ON_WHEN_SCREEN_ON = 2;
+    static final int ROUTE_ALWAYS_ON = 255; // @Intel, CE must be supported
+                                            // with screen off/phone off
+    private static final int CE_ROUTE_DEFAULT = ROUTE_ALWAYS_ON;
 
     /** minimum screen state that enables NFC polling (discovery) */
     static final int POLLING_MODE = SCREEN_STATE_ON_UNLOCKED;
@@ -616,6 +620,8 @@ public class NfcService implements DeviceHostListener {
             /* Get SE List */
             int[] Se_list = mDeviceHost.doGetSecureElementList();
 
+            mEeRoutingState = ROUTE_OFF;
+
             if (mNfcSecureElementState) {
                 int secureElementId = mPrefs.getInt(PREF_SECURE_ELEMENT_ID,
                         SECURE_ELEMENT_ID_DEFAULT);
@@ -631,11 +637,18 @@ public class NfcService implements DeviceHostListener {
                                 Log.d(TAG, "Select SMX");
                                 mDeviceHost.doSelectSecureElement(secureElementId);
                                 mSelectedSeId = secureElementId;
+                                mEeRoutingState = mPrefs.getInt(PREF_CE_ROUTE, CE_ROUTE_DEFAULT);
                                 break;
                             } else if (secureElementId == SECURE_ELEMENT_UICC_ID)
                             {
+                                if (Se_list.length > 1) {
+                                    Log.d(TAG, "UICC used - Deselect SMX");
+                                    mDeviceHost.doDeselectSecureElement(SECURE_ELEMENT_SMX_ID);
+                                }
                                 Log.d(TAG, "Select UICC");
+                                mDeviceHost.doSelectSecureElement(secureElementId);
                                 mSelectedSeId = secureElementId;
+                                mEeRoutingState = mPrefs.getInt(PREF_CE_ROUTE, CE_ROUTE_DEFAULT);
                                 break;
                             } else if (secureElementId == SECURE_ELEMENT_ID_DEFAULT) {
                                 if (Se_list.length > 1) {
@@ -730,6 +743,7 @@ public class NfcService implements DeviceHostListener {
             // A convenient way to stop the watchdog properly consists of
             // disconnecting the tag. The polling loop shall be stopped before
             // to avoid the tag being discovered again.
+            applyRouting(true);
             maybeDisconnectTarget();
 
             if (Log.isLoggable(TAG, Log.DEBUG)) {
@@ -1028,6 +1042,7 @@ public class NfcService implements DeviceHostListener {
             mDeviceHost.doDeselectSecureElement(mSelectedSeId);
             mNfcSecureElementState = false;
             mSelectedSeId = 0;
+            mEeRoutingState = ROUTE_OFF;
 
             /* store preference */
             mPrefsEditor.putBoolean(PREF_SECURE_ELEMENT_ON, false);
@@ -1083,6 +1098,7 @@ public class NfcService implements DeviceHostListener {
 
             mSelectedSeId = seId;
             mDeviceHost.doSelectSecureElement(mSelectedSeId);
+            mEeRoutingState = mPrefs.getInt(PREF_CE_ROUTE, CE_ROUTE_DEFAULT);
 
             /* store */
             mPrefsEditor.putBoolean(PREF_SECURE_ELEMENT_ON, true);
@@ -1852,6 +1868,7 @@ public class NfcService implements DeviceHostListener {
         public void setCardEmulationRoute(String pkg, int route) throws RemoteException {
             NfcService.this.enforceNfceeAdminPerm(pkg);
             mEeRoutingState = route;
+            mPrefsEditor.putInt(PREF_CE_ROUTE, route);
             ApplyRoutingTask applyRoutingTask = new ApplyRoutingTask();
             applyRoutingTask.execute();
             try {
@@ -1961,6 +1978,7 @@ public class NfcService implements DeviceHostListener {
                 // PN544 cannot be reconfigured while EE is open
                 return;
             }
+            boolean nfcOn = mPrefs.getBoolean(PREF_NFC_ON, mNfcOnDefault);
             WatchDogThread watchDog = new WatchDogThread("applyRouting", ROUTING_WATCHDOG_MS);
 
             try {
@@ -1986,25 +2004,27 @@ public class NfcService implements DeviceHostListener {
                         if (force || mNfceeRouteEnabled) {
                             Log.d(TAG, "NFC-EE OFF");
                             mNfceeRouteEnabled = false;
-                            mDeviceHost.doDeselectSecureElement(SECURE_ELEMENT_SMX_ID);
+                            mDeviceHost.doDeselectSecureElement(mSelectedSeId);
                         }
                     }
                     return;
                 }
 
                 // configure NFC-EE routing
-                if (mScreenState >= SCREEN_STATE_ON_LOCKED &&
-                        mEeRoutingState == ROUTE_ON_WHEN_SCREEN_ON) {
+                if ((mScreenState >= SCREEN_STATE_ON_LOCKED &&
+                        mEeRoutingState == ROUTE_ON_WHEN_SCREEN_ON) ||
+                    (mEeRoutingState == ROUTE_ALWAYS_ON &&
+                        nfcOn)) {
                     if (force || !mNfceeRouteEnabled) {
                         Log.d(TAG, "NFC-EE ON");
                         mNfceeRouteEnabled = true;
-                        mDeviceHost.doSelectSecureElement(SECURE_ELEMENT_SMX_ID);
+                        mDeviceHost.doSelectSecureElement(mSelectedSeId);
                     }
                 } else {
                     if (force ||  mNfceeRouteEnabled) {
                         Log.d(TAG, "NFC-EE OFF");
                         mNfceeRouteEnabled = false;
-                        mDeviceHost.doDeselectSecureElement(SECURE_ELEMENT_SMX_ID);
+                        mDeviceHost.doDeselectSecureElement(mSelectedSeId);
                     }
                 }
 
