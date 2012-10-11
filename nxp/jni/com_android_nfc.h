@@ -244,6 +244,7 @@ void nfc_cb_data_releaseAll();
 const char* nfc_jni_get_status_name(NFCSTATUS status);
 int nfc_jni_cache_object(JNIEnv *e, const char *clsname,
    jobject *cached_obj);
+void nfc_jni_delete_global_ref(JNIEnv *e, jobject o);
 struct nfc_jni_native_data* nfc_jni_get_nat(JNIEnv *e, jobject o);
 struct nfc_jni_native_data* nfc_jni_get_nat_ext(JNIEnv *e);
 nfc_jni_native_monitor_t* nfc_jni_init_monitor(void);
