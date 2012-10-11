@@ -243,6 +243,7 @@ static jboolean com_NativeLlcpServiceSocket_doClose(JNIEnv *e, jobject o)
    REENTRANCE_LOCK();
    ret = phLibNfc_Llcp_Close(hLlcpSocket);
    REENTRANCE_UNLOCK();
+   nfc_jni_delete_global_ref(e, o);
    if(ret == NFCSTATUS_SUCCESS)
    {
       TRACE("Close Service socket OK");
