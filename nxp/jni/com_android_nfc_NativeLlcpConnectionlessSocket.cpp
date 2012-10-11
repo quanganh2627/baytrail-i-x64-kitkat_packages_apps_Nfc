@@ -217,6 +217,7 @@ static jboolean com_android_nfc_NativeLlcpConnectionlessSocket_doClose(JNIEnv *e
    REENTRANCE_LOCK();
    ret = phLibNfc_Llcp_Close(hLlcpSocket);
    REENTRANCE_UNLOCK();
+   nfc_jni_delete_global_ref(e, o);
    if(ret == NFCSTATUS_SUCCESS)
    {
       TRACE("phLibNfc_Llcp_Close() returned 0x%04x[%s]", ret, nfc_jni_get_status_name(ret));
