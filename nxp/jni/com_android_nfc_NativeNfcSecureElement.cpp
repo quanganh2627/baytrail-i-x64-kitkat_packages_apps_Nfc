@@ -15,6 +15,7 @@
  */
 
 #include <semaphore.h>
+#include <errno.h>
 
 #include "com_android_nfc.h"
 
@@ -178,6 +179,7 @@ clean_and_return:
    sem_post(&pContextData->sem);
 }
 
+#define OPEN_SE_CONNECTION_TIMEOUT    5
 
 static jint com_android_nfc_NativeNfcSecureElement_doOpenSecureElementConnection(JNIEnv *e, jobject o)
 {
@@ -291,6 +293,8 @@ static jint com_android_nfc_NativeNfcSecureElement_doOpenSecureElementConnection
 
       if(SmartMX_detected)
       {
+         struct timespec ts;
+
          REENTRANCE_LOCK();
          TRACE("phLibNfc_RemoteDev_NtfRegister()");
          ret = phLibNfc_RemoteDev_NtfRegister(&registry_info,
@@ -330,10 +334,20 @@ static jint com_android_nfc_NativeNfcSecureElement_doOpenSecureElementConnection
             goto clean_and_return;
          }
 
+         if (clock_gettime(CLOCK_REALTIME, &ts) == -1)
+         {
+             ALOGE("Clock get time error\n");
+             goto clean_and_return;
+         }
+         ts.tv_sec += OPEN_SE_CONNECTION_TIMEOUT;
          TRACE("Waiting for notification");
          /* Wait for callback response */
-         if(sem_wait(&cb_data_SE_Notification.sem))
+         if(sem_timedwait(&cb_data_SE_Notification.sem, &ts))
          {
+            if (ETIMEDOUT == errno)
+            {
+                sem_post(&cb_data_SE_Notification.sem);
+            }
             ALOGE("Secure Element opening error");
             goto clean_and_return;
          }
