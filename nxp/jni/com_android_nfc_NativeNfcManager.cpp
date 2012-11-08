@@ -279,6 +279,7 @@ static int nfc_jni_configure_driver(struct nfc_jni_native_data *nat)
     }
 
     driverConfigured = TRUE;
+    result = TRUE;
 
 clean_and_return:
     return result;
@@ -361,7 +362,8 @@ static int nfc_jni_initialize(struct nfc_jni_native_data *nat) {
    /* Initialize Driver */
    if(!driverConfigured)
    {
-       nfc_jni_configure_driver(nat);
+       if (!nfc_jni_configure_driver(nat))
+           goto clean_and_return;
    }
 
    /* ====== INITIALIZE ======= */
@@ -2640,6 +2642,9 @@ static bool performDownload(struct nfc_jni_native_data* nat, bool takeLock) {
     if(!driverConfigured)
     {
         result = nfc_jni_configure_driver(nat);
+        if (!result)
+            goto clean_and_return;
+
         wasDisabled = TRUE;
     }
     TRACE("com_android_nfc_NfcManager_doDownload()");
@@ -2700,18 +2705,24 @@ static bool performDownload(struct nfc_jni_native_data* nat, bool takeLock) {
 
     /*Download is successful*/
     result = TRUE;
+
 clean_and_return:
-    TRACE("phLibNfc_HW_Reset()");
-    phLibNfc_HW_Reset();
-    /* Deinitialize Driver */
-    if(wasDisabled)
+    if (driverConfigured)
     {
-        drv_result = nfc_jni_unconfigure_driver(nat);
-        if (!drv_result)
+        TRACE("phLibNfc_HW_Reset()");
+        phLibNfc_HW_Reset();
+
+        /* Deinitialize Driver */
+        if(wasDisabled)
         {
-            emergency_recovery(NULL);
+            drv_result = nfc_jni_unconfigure_driver(nat);
+            if (!drv_result)
+            {
+                emergency_recovery(NULL);
+            }
         }
     }
+
     if (takeLock)
     {
         CONCURRENCY_UNLOCK();
