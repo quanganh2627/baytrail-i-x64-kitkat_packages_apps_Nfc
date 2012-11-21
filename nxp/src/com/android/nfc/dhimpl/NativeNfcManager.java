@@ -177,11 +177,13 @@ public class NativeNfcManager implements DeviceHost {
     public native int[] doGetSecureElementList();
 
     @Override
-    public native void doSelectSecureElement();
+    public native void doSelectSecureElement(int seID);
 
     @Override
-    public native void doDeselectSecureElement();
+    public native void doDeselectSecureElement(int seID);
 
+    @Override
+    public native void doUiccSetSwpMode(int mode);
 
     private native NativeLlcpConnectionlessSocket doCreateLlcpConnectionlessSocket(int nSap,
             String sn);
@@ -378,8 +380,23 @@ public class NativeNfcManager implements DeviceHost {
     /**
      * Notifies transaction
      */
-    private void notifyTransactionListeners(byte[] aid) {
-        mListener.onCardEmulationAidSelected(aid);
+    private void notifyTransactionListeners(byte[] aid, byte[] data) {
+        Log.d(TAG,"NativeNfcManager-notifyTransactionListeners");
+        mListener.onCardEmulationAidSelected(aid,data);
+    }
+
+    /**
+     * Notifies Connectivity event
+     */
+     private void notifyConnectivityListeners() {
+         mListener.onConnectivityEvent();
+     }
+
+    /**
+     * Notifies UICC reader mode event
+     */
+    private void notifyUiccReaderModeListeners(NativeNfcTag tag) {
+        mListener.onUiccReaderModeDetected(tag);
     }
 
     /**
