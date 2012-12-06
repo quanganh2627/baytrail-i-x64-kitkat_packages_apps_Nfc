@@ -30,13 +30,16 @@ import android.app.Application;
 import android.app.KeyguardManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.media.AudioManager;
 import android.media.SoundPool;
 import android.net.Uri;
@@ -58,7 +61,9 @@ import android.os.AsyncTask;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.Message;
 import android.os.PowerManager;
 import android.os.Process;
@@ -68,6 +73,7 @@ import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.Pair;
+import android.widget.Toast;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -79,6 +85,9 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.Timer;
 import java.util.TimerTask;
+
+import com.android.internal.telephony.CwsMMGRService.IMmgrServiceListener;
+import com.android.internal.telephony.CwsMMGRService.IMmgrService;
 
 public class NfcService implements DeviceHostListener {
     private static final String ACTION_MASTER_CLEAR_NOTIFICATION = "android.intent.action.MASTER_CLEAR_NOTIFICATION";
@@ -157,6 +166,8 @@ public class NfcService implements DeviceHostListener {
     // Time to wait for routing to be applied before watchdog
     // goes off
     static final int ROUTING_WATCHDOG_MS = 10000;
+
+    static final int MODEM_WAIT_TIMEOUT = 60000;
 
     // for use with playSound()
     public static final int SOUND_START = 0;
@@ -252,6 +263,9 @@ public class NfcService implements DeviceHostListener {
     NfcAdapterExtrasService mExtrasService;
     boolean mIsAirplaneSensitive;
     boolean mIsAirplaneToggleable;
+    boolean mModemAcknowledgeRequest = false;
+    boolean mModemManagerServiceBound = false;
+    boolean mReEnableNfc = false;
     NfceeAccessControl mNfceeAccessControl;
 
     private NfcDispatcher mNfcDispatcher;
@@ -265,6 +279,10 @@ public class NfcService implements DeviceHostListener {
     public static void enforceAdminPerm(Context context) {
         context.enforceCallingOrSelfPermission(ADMIN_PERM, ADMIN_PERM_ERROR);
     }
+
+    private Object mWaitOnModemUp = new Object();
+    private IMmgrService mModemManagerService;
+    private Handler mReceiverThreadHandler;
 
     public void enforceNfceeAdminPerm(String pkg) {
         if (pkg == null) {
@@ -410,6 +428,13 @@ public class NfcService implements DeviceHostListener {
 
         ServiceManager.addService(SERVICE_NAME, mNfcAdapter);
 
+        HandlerThread broadcastReceiverThread = new HandlerThread("Broadcats receiver thread");
+        broadcastReceiverThread.start();
+
+        Looper brcastRcvThreadLooper = broadcastReceiverThread.getLooper();
+
+        mReceiverThreadHandler = new Handler(brcastRcvThreadLooper);
+
         // Intents only for owner
         IntentFilter ownerFilter = new IntentFilter(NativeNfcManager.INTERNAL_TARGET_DESELECTED_ACTION);
         ownerFilter.addAction(Intent.ACTION_EXTERNAL_APPLICATIONS_AVAILABLE);
@@ -431,7 +456,7 @@ public class NfcService implements DeviceHostListener {
         filter.addAction(Intent.ACTION_SCREEN_ON);
         filter.addAction(Intent.ACTION_USER_PRESENT);
         registerForAirplaneMode(filter);
-        mContext.registerReceiverAsUser(mReceiver, UserHandle.ALL, filter, null, null);
+        mContext.registerReceiverAsUser(mReceiver, UserHandle.ALL, filter, null, mReceiverThreadHandler);
 
         updatePackageCache();
 
@@ -455,6 +480,33 @@ public class NfcService implements DeviceHostListener {
                 mSoundPool.release();
                 mSoundPool = null;
             }
+        }
+    }
+
+    void releaseCwsMmgrResources() {
+        if (mModemAcknowledgeRequest) {
+            try {
+                Log.d(TAG, "Acknowledging modem manager request");
+                mModemManagerService.ackModemShutdown();
+                mModemAcknowledgeRequest = false;
+            } catch (RemoteException e) {
+                Log.e(TAG, "Unable to acknowlegde to cws modem manager");
+            }
+        }
+
+        if (!mReEnableNfc) {
+            if (mModemManagerServiceBound) {
+                try {
+                    mModemManagerService.unregisterCallback(mMmgrCallbacks);
+                } catch (RemoteException e) {
+                    Log.e(TAG, "Unable to unregister Callback from cws modem manager");
+                }
+                mContext.unbindService(mServiceConnection);
+                mModemManagerServiceBound = false;
+            }
+            mModemManagerService = null;
+        } else {
+            mReEnableNfc = false;
         }
     }
 
@@ -523,6 +575,25 @@ public class NfcService implements DeviceHostListener {
             mEeWakeLock.release();
         }
     }
+
+    private ServiceConnection mServiceConnection = new ServiceConnection() {
+        public void onServiceConnected(ComponentName className, IBinder service) {
+            mModemManagerService = IMmgrService.Stub.asInterface((IBinder)service);
+            try {
+                Log.d(TAG, "Registering callback interface");
+                mModemManagerService.registerCallback(mMmgrCallbacks);
+                Log.d(TAG, "Recover modem if Modem is Down");
+                mModemManagerService.checkModemDown();
+            } catch (RemoteException e) {
+                Log.e(TAG, "Unable to register callback");
+            }
+        }
+
+        public void onServiceDisconnected(ComponentName className) {
+            Log.e(TAG, "Service has unexpectedly disconnected");
+            mModemManagerService = null;
+        }
+    };
 
     /**
      * Manages tasks that involve turning on/off the NFC controller.
@@ -674,6 +745,38 @@ public class NfcService implements DeviceHostListener {
             if (mState == NfcAdapter.STATE_ON) {
                 return true;
             }
+
+            List<ResolveInfo> list = mContext.getPackageManager().queryIntentServices(
+                                               new Intent(IMmgrService.class.getName()),0);
+            if (list.size() > 0) {
+                Log.d(TAG, "Waiting on modem up");
+                try {
+                    synchronized (mWaitOnModemUp) {
+                        if (!mModemManagerServiceBound) {
+                            mModemManagerServiceBound = mContext.bindService(new Intent(IMmgrService.class.getName()),
+                                                                                mServiceConnection, Context.BIND_AUTO_CREATE);
+                        }
+                        if (mModemManagerServiceBound) {
+                            long timeStamp = System.currentTimeMillis();
+                            mWaitOnModemUp.wait(MODEM_WAIT_TIMEOUT);
+                            if (System.currentTimeMillis() - timeStamp >= MODEM_WAIT_TIMEOUT) {
+                                Log.e(TAG, "Cannot enable NFC");
+                                mDialogMessageHandler.sendMessage(mDialogMessageHandler.obtainMessage());
+                                return false;
+                            }
+                       } else {
+                            Log.e(TAG, "Modem manager service cannot be bound");
+                            mDialogMessageHandler.sendMessage(mDialogMessageHandler.obtainMessage());
+                            return false;
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    Log.e(TAG, "Enable thread is interrupted, exiting ...");
+                    mDialogMessageHandler.sendMessage(mDialogMessageHandler.obtainMessage());
+                    return false;
+                }
+            }
+
             Log.i(TAG, "Enabling NFC");
             updateState(NfcAdapter.STATE_TURNING_ON);
 
@@ -763,6 +866,7 @@ public class NfcService implements DeviceHostListener {
             updateState(NfcAdapter.STATE_OFF);
 
             releaseSoundPool();
+            releaseCwsMmgrResources();
 
             return result;
         }
@@ -870,6 +974,42 @@ public class NfcService implements DeviceHostListener {
         }
     }
 
+    private final IMmgrServiceListener.Stub mMmgrCallbacks = new IMmgrServiceListener.Stub() {
+        public void modemUp() {
+            Log.d(TAG, "Modem is going UP message received");
+            synchronized (mWaitOnModemUp) {
+                mWaitOnModemUp.notify();
+            }
+        }
+
+        public void modemColdReset() {
+            Log.d(TAG, "Modem cold reset message received");
+            mModemAcknowledgeRequest = true;
+            switch (mState) {
+                case NfcAdapter.STATE_OFF:
+                    releaseCwsMmgrResources();
+                    break;
+                case NfcAdapter.STATE_TURNING_OFF:
+                    break;
+                case NfcAdapter.STATE_ON:
+                case NfcAdapter.STATE_TURNING_ON:
+                    mReEnableNfc = true;
+                    new EnableDisableTask().execute(TASK_DISABLE);
+                    new EnableDisableTask().execute(TASK_ENABLE);
+                    break;
+            }
+        }
+
+        public void modemShutdown() {
+            Log.d(TAG, "Modem shutdown message received");
+            mModemAcknowledgeRequest = true;
+            if (mState == NfcAdapter.STATE_OFF) {
+                releaseCwsMmgrResources();
+            } else if (mState != NfcAdapter.STATE_TURNING_OFF) {
+                new EnableDisableTask().execute(TASK_DISABLE);
+            }
+        }
+    };
 
     final class NfcAdapterService extends INfcAdapter.Stub {
         @Override
@@ -2582,6 +2722,13 @@ public class NfcService implements DeviceHostListener {
         return Settings.System.getInt(mContext.getContentResolver(),
                 Settings.System.AIRPLANE_MODE_ON, 0) == 1;
     }
+
+    private Handler mDialogMessageHandler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            Toast.makeText(mContext, R.string.nfc_error, Toast.LENGTH_LONG).show();
+        }
+    };
 
     /** for debugging only - no i18n */
     static String stateToString(int state) {
