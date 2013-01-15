@@ -1491,6 +1491,7 @@ static void nfc_jni_stop_discovery_locked(struct nfc_jni_native_data *nat)
    discovery_cfg.NfcIP_Mode = phNfc_eDefaultP2PMode;
    discovery_cfg.NfcIP_Target_Mode = 0;
    discovery_cfg.NfcIP_Tgt_Disable = TRUE;
+   discovery_cfg.Duration = 300000;
 
 configure:
    /* Start Polling loop */
