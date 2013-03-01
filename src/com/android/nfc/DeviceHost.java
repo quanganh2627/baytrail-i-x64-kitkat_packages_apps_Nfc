@@ -35,6 +35,8 @@ public interface DeviceHost {
          */
         public void onCardEmulationAidSelected(byte[] aid, byte[] data);
 
+        public void onCardEmulationAidSelected(byte[] aid);
+
         /**
          * Notifies connectivity event from the SE (UICC)
          */
@@ -203,6 +205,10 @@ public interface DeviceHost {
     public void doSelectSecureElement(int seID);
 
     public void doDeselectSecureElement(int seID);
+
+    public void doSelectSecureElement();
+
+    public void doDeselectSecureElement();
 
     public LlcpConnectionlessSocket createLlcpConnectionlessSocket(int nSap, String sn)
             throws LlcpException;
