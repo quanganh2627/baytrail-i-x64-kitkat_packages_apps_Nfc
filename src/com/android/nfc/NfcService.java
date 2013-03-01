@@ -441,14 +441,14 @@ public class NfcService implements DeviceHostListener {
         ownerFilter.addAction(Intent.ACTION_EXTERNAL_APPLICATIONS_UNAVAILABLE);
         ownerFilter.addAction(ACTION_MASTER_CLEAR_NOTIFICATION);
 
-        mContext.registerReceiver(mOwnerReceiver, ownerFilter);
+        mContext.registerReceiver(mOwnerReceiver, ownerFilter, null, mReceiverThreadHandler);
 
         ownerFilter = new IntentFilter();
         ownerFilter.addAction(Intent.ACTION_PACKAGE_ADDED);
         ownerFilter.addAction(Intent.ACTION_PACKAGE_REMOVED);
         ownerFilter.addDataScheme("package");
 
-        mContext.registerReceiver(mOwnerReceiver, ownerFilter);
+        mContext.registerReceiver(mOwnerReceiver, ownerFilter, null, mReceiverThreadHandler);
 
         // Intents for all users
         IntentFilter filter = new IntentFilter(NativeNfcManager.INTERNAL_TARGET_DESELECTED_ACTION);
@@ -456,7 +456,7 @@ public class NfcService implements DeviceHostListener {
         filter.addAction(Intent.ACTION_SCREEN_ON);
         filter.addAction(Intent.ACTION_USER_PRESENT);
         registerForAirplaneMode(filter);
-        mContext.registerReceiverAsUser(mReceiver, UserHandle.ALL, filter, null, mReceiverThreadHandler);
+        mContext.registerReceiverAsUser(mReceiver, UserHandle.ALL, filter, null, null);
 
         updatePackageCache();
 
