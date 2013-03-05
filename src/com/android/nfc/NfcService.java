@@ -591,7 +591,10 @@ public class NfcService implements DeviceHostListener {
 
         public void onServiceDisconnected(ComponentName className) {
             Log.e(TAG, "Service has unexpectedly disconnected");
-            mModemManagerService = null;
+            if (mState == NfcAdapter.STATE_ON || mState == NfcAdapter.STATE_TURNING_ON) {
+                    new EnableDisableTask().execute(TASK_DISABLE);
+                    new EnableDisableTask().execute(TASK_ENABLE);
+            }
         }
     };
 
