@@ -63,11 +63,12 @@ static phLibNfc_Handle getIncomingSocket(nfc_jni_native_monitor_t * pMonitor,
    return pIncomingSocket;
 }
 
+static pthread_mutex_t server_socket_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 static bool getServerSocketClosing(nfc_jni_native_monitor_t * pMonitor,
                                                  phLibNfc_Handle hServerSocket)
 {
    nfc_jni_listen_data_t * pListenData;
-   phLibNfc_Handle pServerSocket = NULL;
    bool bServerSocketClosing = FALSE;
 
    /* Look for a corresponding server socket */
@@ -77,8 +78,10 @@ static bool getServerSocketClosing(nfc_jni_native_monitor_t * pMonitor,
       {
          bServerSocketClosing = pListenData->bServerSocketClosing;
          if (bServerSocketClosing) {
+            pthread_mutex_lock(&server_socket_mutex);
             LIST_REMOVE(pListenData, entries);
             free(pListenData);
+            pthread_mutex_unlock(&server_socket_mutex);
          }
          break;
       }
@@ -92,9 +95,9 @@ static void setServerSocketClosing(nfc_jni_native_monitor_t * pMonitor,
                                                  bool serverSocketClosing)
 {
    nfc_jni_listen_data_t * pListenData;
-   phLibNfc_Handle pServerSocket = NULL;
 
    /* Look for a corresponding server socket */
+   pthread_mutex_lock(&server_socket_mutex);
    LIST_FOREACH(pListenData, &pMonitor->server_socket_head, entries)
    {
       if (pListenData->pServerSocket == hServerSocket)
@@ -103,6 +106,7 @@ static void setServerSocketClosing(nfc_jni_native_monitor_t * pMonitor,
          break;
       }
    }
+   pthread_mutex_unlock(&server_socket_mutex);
 }
 
 /*
