@@ -2,6 +2,7 @@ VOB_COMPONENTS := external/libnfc-nci/src
 NFA := $(VOB_COMPONENTS)/nfa
 NFC := $(VOB_COMPONENTS)/nfc
 
+PN547_EXT_PATH := device/intel/nfc/pn547/extns
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 LOCAL_PRELINK_MODULE := false
@@ -44,6 +45,17 @@ LOCAL_SHARED_LIBRARIES := \
     libutils \
     libnfc-nci \
     libstlport
+
+ifeq ($(strip $(BOARD_HAVE_NXP_PN547)), true)
+LOCAL_CFLAGS += -DNFCC_DEVICE_PN547C1 -DNXP_EXT
+LOCAL_C_INCLUDES += \
+    $(PN547_EXT_PATH)/inc \
+    $(PN547_EXT_PATH)/osal \
+    $(PN547_EXT_PATH)/src
+
+LOCAL_SHARED_LIBRARIES += \
+    libnfc_nci_extns
+endif
 
 LOCAL_STATIC_LIBRARIES := libxml2
 

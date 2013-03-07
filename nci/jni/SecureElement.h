@@ -384,10 +384,16 @@ private:
     static const unsigned int MAX_RESPONSE_SIZE = 1024;
     enum RouteSelection {NoRoute, DefaultRoute, SecElemRoute};
     static const int MAX_NUM_EE = 5;    //max number of EE's
+#ifdef NXP_EXT
+    static const UINT8 STATIC_PIPE_0x70 = 0x19; //Broadcom's proprietary static pipe
+    static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x401; //handle to secure element in slot 0
+#else
     static const UINT8 STATIC_PIPE_0x70 = 0x70; //Broadcom's proprietary static pipe
+    static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x4F3; //handle to secure element in slot 0
+#endif
     static const UINT8 STATIC_PIPE_0x71 = 0x71; //Broadcom's proprietary static pipe
     static const UINT8 EVT_SEND_DATA = 0x10;    //see specification ETSI TS 102 622 v9.0.0 (Host Controller Interface); section 9.3.3.3
-    static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x4F3; //handle to secure element in slot 0
+
     static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x4F4; //handle to secure element in slot 1
     static SecureElement sSecElem;
     static const char* APP_NAME;
@@ -604,4 +610,3 @@ private:
     *******************************************************************************/
     bool encodeAid (UINT8* tlv, UINT16 tlvMaxLen, UINT16& tlvActualLen, const UINT8* aid, UINT8 aidLen);
 };
-

@@ -23,6 +23,9 @@
 extern "C"
 {
     #include "rw_int.h"
+#ifdef NXP_EXT
+    #include "phNxpNciExtns.h"
+#endif
 }
 
 
@@ -352,6 +355,29 @@ void NfcTag::discoverTechnologies (tNFA_ACTIVATED& activationData)
         mNumTechList--; // no tech classes for Kovio
         break;
 
+#ifdef NXP_EXT
+    case NFC_PROTOCOL_MIFARE:
+        ALOGE ("Mifare Classic detected");
+        phNxpNciExtns_MifareStd_Init(activationData); /* TODO: */
+        mTechList [mNumTechList] = TARGET_TYPE_ISO14443_3A;  //is TagTechnology.NFC_A by Java API
+        // could be MifFare UL or Classic or Kovio
+        {
+            // need to look at first byte of uid to find manuf.
+            tNFC_RF_TECH_PARAMS tech_params;
+            memcpy (&tech_params, &(rfDetail.rf_tech_param), sizeof(rfDetail.rf_tech_param));
+
+                {
+                    mNumTechList++;
+                    mTechHandles [mNumTechList] = rfDetail.rf_disc_id;
+                    mTechLibNfcTypes [mNumTechList] = rfDetail.protocol;
+                    //save the stack's data structure for interpretation later
+                    memcpy (&(mTechParams[mNumTechList]), &(rfDetail.rf_tech_param), sizeof(rfDetail.rf_tech_param));
+                    mTechList [mNumTechList] = TARGET_TYPE_MIFARE_CLASSIC; //is TagTechnology.MIFARE_ULTRALIGHT by Java API
+                }
+        }
+        break;
+#endif
+
     default:
         ALOGE ("%s: unknown protocol ????", fn);
         mTechList [mNumTechList] = TARGET_TYPE_UNKNOWN;
@@ -453,6 +479,20 @@ void NfcTag::discoverTechnologies (tNFA_DISC_RESULT& discoveryData)
     case NFC_PROTOCOL_15693: //is TagTechnology.NFC_V by Java API
         mTechList [mNumTechList] = TARGET_TYPE_ISO15693;
         break;
+
+#ifdef NXP_EXT
+    case NFC_PROTOCOL_MIFARE:
+        ALOGE ("Mifare Classic detected");
+        /* TODO Review this */
+        mTechHandles [mNumTechList] = discovery_ntf.rf_disc_id;
+        mTechLibNfcTypes [mNumTechList] = discovery_ntf.protocol;
+        mTechList [mNumTechList] = TARGET_TYPE_MIFARE_CLASSIC;
+        //save the stack's data structure for interpretation later
+        memcpy (&(mTechParams[mNumTechList]), &(discovery_ntf.rf_tech_param), sizeof(discovery_ntf.rf_tech_param));
+            mNumTechList++;
+        mTechList [mNumTechList] = TARGET_TYPE_ISO14443_3A;
+        break;
+#endif
 
     default:
         ALOGE ("%s: unknown protocol ????", fn);
@@ -785,6 +825,17 @@ void NfcTag::fillNativeNfcTagMembers4 (JNIEnv* e, jclass tag_cls, jobject tag, t
                         (jbyte*) &mTechParams [i].param.pa.sel_rsp);
             }
             break;
+
+#ifdef NXP_EXT
+        case NFC_PROTOCOL_MIFARE://0x80:
+            {
+                ALOGD ("%s: Mifare Classic; tech A", fn);
+                actBytes = e->NewByteArray (1);
+                e->SetByteArrayRegion (actBytes, 0, 1,
+                        (jbyte*) &mTechParams [i].param.pa.sel_rsp);
+            }
+            break;
+#endif
 
         case NFC_PROTOCOL_T2T:
             {
