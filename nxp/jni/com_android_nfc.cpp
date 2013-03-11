@@ -125,12 +125,6 @@ void nfc_cb_data_releaseAll()
    }
 }
 
-/* Today, we expect max 5 allocated global references, since the allocation is mainly
- * used by ndef/snep client/server. */
-#define MAX_GR_NUMBER 5
-static jobject global_reference[MAX_GR_NUMBER] = { NULL, NULL, NULL, NULL, NULL };
-static pthread_mutex_t gr_mutex = PTHREAD_MUTEX_INITIALIZER;
-
 int nfc_jni_cache_object(JNIEnv *e, const char *clsname,
    jobject *cached_obj)
 {
@@ -163,43 +157,11 @@ int nfc_jni_cache_object(JNIEnv *e, const char *clsname,
       return -1;
    }
 
-   int i;
-   pthread_mutex_lock (&gr_mutex);
-   for (i = 0; i < MAX_GR_NUMBER; i++)
-   {
-       if (global_reference[i] == NULL) {
-            global_reference[i] = *cached_obj;
-            break;
-       }
-   }
-   pthread_mutex_unlock(&gr_mutex);
-
-   if (MAX_GR_NUMBER == i)
-   {
-       ALOGW("Number of available stock references exceeded!\n");
-   }
-
    e->DeleteLocalRef(obj);
 
    return 0;
 }
 
-void nfc_jni_delete_global_ref(JNIEnv *e, jobject o)
-{
-    for (int i = 0; i < MAX_GR_NUMBER; i++)
-    {
-        if (global_reference[i] != NULL)
-        {
-            if (e->IsSameObject(global_reference[i], o))
-            {
-                e->DeleteGlobalRef(global_reference[i]);
-                ALOGD("Global reference deleted!\n");
-                global_reference[i] = NULL;
-                break;
-            }
-        }
-    }
-}
 
 struct nfc_jni_native_data* nfc_jni_get_nat(JNIEnv *e, jobject o)
 {
@@ -255,7 +217,6 @@ nfc_jni_native_monitor_t* nfc_jni_init_monitor(void)
       }
 
       LIST_INIT(&nfc_jni_native_monitor->incoming_socket_head);
-      LIST_INIT(&nfc_jni_native_monitor->server_socket_head);
 
       if(pthread_mutex_init(&nfc_jni_native_monitor->incoming_socket_mutex, NULL) == -1)
       {

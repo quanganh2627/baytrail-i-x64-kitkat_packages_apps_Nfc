@@ -117,48 +117,27 @@ public class NdefPushServer {
 
     /** Server class, used to listen for incoming connection request */
     class ServerThread extends Thread {
-        // Variables below synchronized on NdefPushServer.this
         boolean mRunning = true;
         LlcpServerSocket mServerSocket;
 
         @Override
         public void run() {
-            boolean threadRunning;
-            synchronized (NdefPushServer.this) {
-                threadRunning = mRunning;
-            }
-            while (threadRunning) {
+            while (mRunning) {
                 if (DBG) Log.d(TAG, "about create LLCP service socket");
                 try {
-                    synchronized (NdefPushServer.this) {
-                        mServerSocket = mService.createLlcpServerSocket(mSap, SERVICE_NAME,
-                                MIU, 1, 1024);
-                    }
+                    mServerSocket = mService.createLlcpServerSocket(mSap, SERVICE_NAME,
+                            MIU, 1, 1024);
                     if (mServerSocket == null) {
                         if (DBG) Log.d(TAG, "failed to create LLCP service socket");
                         return;
                     }
                     if (DBG) Log.d(TAG, "created LLCP service socket");
-                    synchronized (NdefPushServer.this) {
-                        threadRunning = mRunning;
-                    }
-
-                    while (threadRunning) {
-                        LlcpServerSocket serverSocket;
-                        synchronized (NdefPushServer.this) {
-                            serverSocket = mServerSocket;
-                        }
-                        if (serverSocket == null) return;
-
+                    while (mRunning) {
                         if (DBG) Log.d(TAG, "about to accept");
-                        LlcpSocket communicationSocket = serverSocket.accept();
+                        LlcpSocket communicationSocket = mServerSocket.accept();
                         if (DBG) Log.d(TAG, "accept returned " + communicationSocket);
                         if (communicationSocket != null) {
                             new ConnectionThread(communicationSocket).start();
-                        }
-
-                        synchronized (NdefPushServer.this) {
-                            threadRunning = mRunning;
                         }
                     }
                     if (DBG) Log.d(TAG, "stop running");
@@ -167,36 +146,28 @@ public class NdefPushServer {
                 } catch (IOException e) {
                     Log.e(TAG, "IO error", e);
                 } finally {
-                    synchronized (NdefPushServer.this) {
-                        if (mServerSocket != null) {
-                            if (DBG) Log.d(TAG, "about to close");
-                            try {
-                                mServerSocket.close();
-                            } catch (IOException e) {
-                                // ignore
-                            }
-                            mServerSocket = null;
+                    if (mServerSocket != null) {
+                        if (DBG) Log.d(TAG, "about to close");
+                        try {
+                            mServerSocket.close();
+                        } catch (IOException e) {
+                            // ignore
                         }
+                        mServerSocket = null;
                     }
-                }
-
-                synchronized (NdefPushServer.this) {
-                    threadRunning = mRunning;
                 }
             }
         }
 
         public void shutdown() {
-            synchronized (NdefPushServer.this) {
-                mRunning = false;
-                if (mServerSocket != null) {
-                    try {
-                        mServerSocket.close();
-                    } catch (IOException e) {
-                        // ignore
-                    }
-                    mServerSocket = null;
+            mRunning = false;
+            if (mServerSocket != null) {
+                try {
+                    mServerSocket.close();
+                } catch (IOException e) {
+                    // ignore
                 }
+                mServerSocket = null;
             }
         }
     }

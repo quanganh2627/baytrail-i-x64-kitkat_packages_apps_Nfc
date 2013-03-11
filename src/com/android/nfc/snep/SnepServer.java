@@ -33,11 +33,10 @@ import java.io.IOException;
  */
 public final class SnepServer {
     private static final String TAG = "SnepServer";
-    private static final boolean DBG = true;
-    private static final int DEFAULT_MIU = 248;
-    private static final int DEFAULT_RW_SIZE = 1;
+    private static final boolean DBG = false;
 
     public static final int DEFAULT_PORT = 4;
+    private static final int MIU = 248;
 
     public static final String DEFAULT_SERVICE_NAME = "urn:nfc:sn:snep";
 
@@ -45,8 +44,6 @@ public final class SnepServer {
     final String mServiceName;
     final int mServiceSap;
     final int mFragmentLength;
-    final int mMiu;
-    final int mRwSize;
 
     /** Protected by 'this', null when stopped, non-null when running */
     ServerThread mServerThread = null;
@@ -62,8 +59,6 @@ public final class SnepServer {
         mServiceName = DEFAULT_SERVICE_NAME;
         mServiceSap = DEFAULT_PORT;
         mFragmentLength = -1;
-        mMiu = DEFAULT_MIU;
-        mRwSize = DEFAULT_RW_SIZE;
     }
 
     public SnepServer(String serviceName, int serviceSap, Callback callback) {
@@ -71,17 +66,6 @@ public final class SnepServer {
         mServiceName = serviceName;
         mServiceSap = serviceSap;
         mFragmentLength = -1;
-        mMiu = DEFAULT_MIU;
-        mRwSize = DEFAULT_RW_SIZE;
-    }
-
-    public SnepServer(Callback callback, int miu, int rwSize) {
-        mCallback = callback;
-        mServiceName = DEFAULT_SERVICE_NAME;
-        mServiceSap = DEFAULT_PORT;
-        mFragmentLength = -1;
-        mMiu = miu;
-        mRwSize = rwSize;
     }
 
     SnepServer(String serviceName, int serviceSap, int fragmentLength, Callback callback) {
@@ -89,8 +73,6 @@ public final class SnepServer {
         mServiceName = serviceName;
         mServiceSap = serviceSap;
         mFragmentLength = fragmentLength;
-        mMiu = DEFAULT_MIU;
-        mRwSize = DEFAULT_RW_SIZE;
     }
 
     /** Connection class, used to handle incoming connections */
@@ -186,7 +168,7 @@ public final class SnepServer {
                 try {
                     synchronized (SnepServer.this) {
                         mServerSocket = NfcService.getInstance().createLlcpServerSocket(mServiceSap,
-                                mServiceName, mMiu, mRwSize, 1024);
+                                mServiceName, MIU, 1, 1024);
                     }
                     if (mServerSocket == null) {
                         if (DBG) Log.d(TAG, "failed to create LLCP service socket");

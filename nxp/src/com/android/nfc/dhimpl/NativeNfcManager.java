@@ -43,25 +43,6 @@ public class NativeNfcManager implements DeviceHost {
     private static final String PREF_FIRMWARE_MODTIME = "firmware_modtime";
     private static final long FIRMWARE_MODTIME_DEFAULT = -1;
 
-    static final String DRIVER_NAME = "nxp";
-
-    static final int DEFAULT_LLCP_MIU = 128;
-    static final int DEFAULT_LLCP_RWSIZE = 1;
-
-    //TODO: dont hardcode this
-    private static final byte[][] EE_WIPE_APDUS = {
-        {(byte)0x00, (byte)0xa4, (byte)0x04, (byte)0x00, (byte)0x00},
-        {(byte)0x00, (byte)0xa4, (byte)0x04, (byte)0x00, (byte)0x07, (byte)0xa0, (byte)0x00,
-                (byte)0x00, (byte)0x04, (byte)0x76, (byte)0x20, (byte)0x10, (byte)0x00},
-        {(byte)0x80, (byte)0xe2, (byte)0x01, (byte)0x03, (byte)0x00},
-        {(byte)0x00, (byte)0xa4, (byte)0x04, (byte)0x00, (byte)0x00},
-        {(byte)0x00, (byte)0xa4, (byte)0x04, (byte)0x00, (byte)0x07, (byte)0xa0, (byte)0x00,
-                (byte)0x00, (byte)0x04, (byte)0x76, (byte)0x30, (byte)0x30, (byte)0x00},
-        {(byte)0x80, (byte)0xb4, (byte)0x00, (byte)0x00, (byte)0x00},
-        {(byte)0x00, (byte)0xa4, (byte)0x04, (byte)0x00, (byte)0x00},
-    };
-
-
     static {
         System.loadLibrary("nfc_jni");
     }
@@ -163,11 +144,6 @@ public class NativeNfcManager implements DeviceHost {
     }
 
     @Override
-    public String getName() {
-        return DRIVER_NAME;
-    }
-
-    @Override
     public native void enableDiscovery();
 
     @Override
@@ -177,13 +153,11 @@ public class NativeNfcManager implements DeviceHost {
     public native int[] doGetSecureElementList();
 
     @Override
-    public native void doSelectSecureElement(int seID);
+    public native void doSelectSecureElement();
 
     @Override
-    public native void doDeselectSecureElement(int seID);
+    public native void doDeselectSecureElement();
 
-    @Override
-    public native void doUiccSetSwpMode(int mode);
 
     private native NativeLlcpConnectionlessSocket doCreateLlcpConnectionlessSocket(int nSap,
             String sn);
@@ -331,30 +305,9 @@ public class NativeNfcManager implements DeviceHost {
         doSetP2pTargetModes(modes);
     }
 
-    @Override
     public boolean getExtendedLengthApdusSupported() {
         // Not supported on the PN544
         return false;
-    }
-
-    @Override
-    public boolean enablePN544Quirks() {
-        return true;
-    }
-
-    @Override
-    public byte[][] getWipeApdus() {
-        return EE_WIPE_APDUS;
-    }
-
-    @Override
-    public int getDefaultLlcpMiu() {
-        return DEFAULT_LLCP_MIU;
-    }
-
-    @Override
-    public int getDefaultLlcpRwSize() {
-        return DEFAULT_LLCP_RWSIZE;
     }
 
     private native String doDump();
@@ -380,23 +333,8 @@ public class NativeNfcManager implements DeviceHost {
     /**
      * Notifies transaction
      */
-    private void notifyTransactionListeners(byte[] aid, byte[] data) {
-        Log.d(TAG,"NativeNfcManager-notifyTransactionListeners");
-        mListener.onCardEmulationAidSelected(aid,data);
-    }
-
-    /**
-     * Notifies Connectivity event
-     */
-     private void notifyConnectivityListeners() {
-         mListener.onConnectivityEvent();
-     }
-
-    /**
-     * Notifies UICC reader mode event
-     */
-    private void notifyUiccReaderModeListeners(NativeNfcTag tag) {
-        mListener.onUiccReaderModeDetected(tag);
+    private void notifyTransactionListeners(byte[] aid) {
+        mListener.onCardEmulationAidSelected(aid);
     }
 
     /**
@@ -432,5 +370,4 @@ public class NativeNfcManager implements DeviceHost {
     private void notifySeMifareAccess(byte[] block) {
         mListener.onSeMifareAccess(block);
     }
-
 }
