@@ -136,6 +136,7 @@ public class P2pLinkManager implements Handler.Callback, P2pEventListener.Callba
     static final int MSG_START_ECHOSERVER = 5;
     static final int MSG_STOP_ECHOSERVER = 6;
     static final int MSG_HANDOVER_NOT_SUPPORTED = 7;
+    static final int MSG_SET_NDEF_TO_SEND = 8;
 
     // values for mLinkState
     static final int LINK_STATE_DOWN = 1;
@@ -167,6 +168,9 @@ public class P2pLinkManager implements Handler.Callback, P2pEventListener.Callba
     final Handler mHandler;
     final HandoverManager mHandoverManager;
 
+    final int mDefaultMiu;
+    final int mDefaultRwSize;
+
     // Locked on NdefP2pManager.this
     int mLinkState;
     int mSendState;  // valid during LINK_STATE_UP or LINK_STATE_DEBOUNCE
@@ -179,9 +183,10 @@ public class P2pLinkManager implements Handler.Callback, P2pEventListener.Callba
     SharedPreferences mPrefs;
     boolean mFirstBeam;
 
-    public P2pLinkManager(Context context, HandoverManager handoverManager) {
+    public P2pLinkManager(Context context, HandoverManager handoverManager, int defaultMiu,
+            int defaultRwSize) {
         mNdefPushServer = new NdefPushServer(NDEFPUSH_SAP, mNppCallback);
-        mDefaultSnepServer = new SnepServer(mDefaultSnepCallback);
+        mDefaultSnepServer = new SnepServer(mDefaultSnepCallback, defaultMiu, defaultRwSize);
         mHandoverServer = new HandoverServer(HANDOVER_SAP, handoverManager, mHandoverCallback);
 
         if (ECHOSERVER_ENABLED) {
@@ -201,7 +206,27 @@ public class P2pLinkManager implements Handler.Callback, P2pEventListener.Callba
         mPrefs = context.getSharedPreferences(NfcService.PREF, Context.MODE_PRIVATE);
         mFirstBeam = mPrefs.getBoolean(NfcService.PREF_FIRST_BEAM, true);
         mHandoverManager = handoverManager;
+        mDefaultMiu = defaultMiu;
+        mDefaultRwSize = defaultRwSize;
      }
+
+
+
+    final class P2PLinkManagerHandler extends Handler {
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case MSG_SET_NDEF_TO_SEND: {
+                    if (DBG) Log.d(TAG, "MSG_SET_NDEF_TO_SEND");
+                    synchronized (P2pLinkManager.this) {
+                        mCallbackNdef = (INdefPushCallback)msg.obj;
+                    }
+                }
+            }
+        }
+    }
+
+    private P2PLinkManagerHandler mSetNdefHandler = new P2PLinkManagerHandler();
 
     /**
      * May be called from any thread.
@@ -237,9 +262,10 @@ public class P2pLinkManager implements Handler.Callback, P2pEventListener.Callba
      * active as soon as P2P send is enabled.
      */
     public void setNdefCallback(INdefPushCallback callbackNdef) {
-        synchronized (this) {
-            mCallbackNdef = callbackNdef;
-        }
+        Message msg = mSetNdefHandler.obtainMessage();
+        msg.what = MSG_SET_NDEF_TO_SEND;
+        msg.obj = callbackNdef;
+        mSetNdefHandler.sendMessage(msg);
     }
 
     /**
@@ -417,11 +443,11 @@ public class P2pLinkManager implements Handler.Callback, P2pEventListener.Callba
 
             long time = SystemClock.elapsedRealtime();
 
-
             try {
                 if (DBG) Log.d(TAG, "Sending ndef via SNEP");
 
-                int snepResult = doSnepProtocol(mHandoverManager, m, uris);
+                int snepResult = doSnepProtocol(mHandoverManager, m, uris,
+                        mDefaultMiu, mDefaultRwSize);
 
                 switch (snepResult) {
                     case SNEP_HANDOVER_UNSUPPORTED:
@@ -461,8 +487,8 @@ public class P2pLinkManager implements Handler.Callback, P2pEventListener.Callba
     }
 
     static int doSnepProtocol(HandoverManager handoverManager,
-            NdefMessage msg, Uri[] uris) throws IOException {
-        SnepClient snepClient = new SnepClient();
+            NdefMessage msg, Uri[] uris, int miu, int rwSize) throws IOException {
+        SnepClient snepClient = new SnepClient(miu, rwSize);
         try {
             snepClient.connect();
         } catch (IOException e) {

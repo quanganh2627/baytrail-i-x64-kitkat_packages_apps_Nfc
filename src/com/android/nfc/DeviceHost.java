@@ -33,7 +33,12 @@ public interface DeviceHost {
         /**
          * Notifies transaction
          */
-        public void onCardEmulationAidSelected(byte[] aid);
+        public void onCardEmulationAidSelected(byte[] aid, byte[] data);
+
+        /**
+         * Notifies connectivity event from the SE (UICC)
+         */
+        public void onConnectivityEvent();
 
         /**
          * Notifies P2P Device detected, to activate LLCP link
@@ -49,11 +54,23 @@ public interface DeviceHost {
 
         public void onRemoteFieldDeactivated();
 
+        /**
+         * Notifies that the SE has been activated in listen mode
+         */
+        public void onSeListenActivated();
+
+        /**
+         * Notifies that the SE has been deactivated
+         */
+        public void onSeListenDeactivated();
+
         public void onSeApduReceived(byte[] apdu);
 
         public void onSeEmvCardRemoval();
 
         public void onSeMifareAccess(byte[] block);
+
+        public void onUiccReaderModeDetected(TagEndpoint tag);
     }
 
     public interface TagEndpoint {
@@ -175,18 +192,22 @@ public interface DeviceHost {
 
     public boolean deinitialize();
 
+    public String getName();
+
     public void enableDiscovery();
 
     public void disableDiscovery();
 
     public int[] doGetSecureElementList();
 
-    public void doSelectSecureElement();
+    public void doSelectSecureElement(int seID);
 
-    public void doDeselectSecureElement();
+    public void doDeselectSecureElement(int seID);
 
     public LlcpConnectionlessSocket createLlcpConnectionlessSocket(int nSap, String sn)
             throws LlcpException;
+
+    public void doUiccSetSwpMode(int mode);
 
     public LlcpServerSocket createLlcpServerSocket(int nSap, String sn, int miu,
             int rw, int linearBufferLength) throws LlcpException;
@@ -215,6 +236,14 @@ public interface DeviceHost {
     void setP2pTargetModes(int modes);
 
     boolean getExtendedLengthApdusSupported();
+
+    boolean enablePN544Quirks();
+
+    byte[][] getWipeApdus();
+
+    int getDefaultLlcpMiu();
+
+    int getDefaultLlcpRwSize();
 
     String dump();
 }

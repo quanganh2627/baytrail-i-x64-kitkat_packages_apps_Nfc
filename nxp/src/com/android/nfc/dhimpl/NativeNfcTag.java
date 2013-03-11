@@ -136,6 +136,10 @@ public class NativeNfcTag implements TagEndpoint {
 
     private native int doConnect(int handle);
     public synchronized int connectWithStatus(int technology) {
+        if (technology == TagTechnology.NFC_B) {
+            // Not supported by PN544
+            return -1;
+        }
         if (mWatchdog != null) {
             mWatchdog.pause();
         }
@@ -785,6 +789,7 @@ public class NativeNfcTag implements TagEndpoint {
                         getConnectedLibNfcType(),
                         getConnectedTechnology(),
                         supportedNdefLength, cardState);
+                foundFormattable = false;
                 reconnect();
             }
             break;
