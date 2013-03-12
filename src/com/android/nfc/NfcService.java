@@ -103,6 +103,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.Timer;
 import java.util.TimerTask;
 
+import com.android.internal.telephony.TelephonyIntents;
+import com.android.internal.telephony.IccCardConstants;
+
 public class NfcService implements DeviceHostListener {
     private static final String ACTION_MASTER_CLEAR_NOTIFICATION = "android.intent.action.MASTER_CLEAR_NOTIFICATION";
 
@@ -552,6 +555,7 @@ public class NfcService implements DeviceHostListener {
         filter.addAction(Intent.ACTION_SCREEN_ON);
         filter.addAction(Intent.ACTION_USER_PRESENT);
         filter.addAction(Intent.ACTION_USER_SWITCHED);
+        filter.addAction(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
         registerForAirplaneMode(filter);
         mContext.registerReceiverAsUser(mReceiver, UserHandle.ALL, filter, null, null);
 
@@ -715,9 +719,9 @@ public class NfcService implements DeviceHostListener {
                     }
                     if (mPrefs.getBoolean(PREF_FIRST_BOOT, true)) {
                         Log.i(TAG, "First Boot");
+                        executeEeWipe();
                         mPrefsEditor.putBoolean(PREF_FIRST_BOOT, false);
                         mPrefsEditor.apply();
-                        executeEeWipe();
                     }
                     break;
                 case TASK_EE_WIPE:
@@ -777,6 +781,12 @@ public class NfcService implements DeviceHostListener {
                                         Log.d(TAG, "UICC deselected by default");
                                         mDeviceHost.doDeselectSecureElement(SECURE_ELEMENT_UICC_ID);
                                     }
+                                }
+                        } else if (Se_list.length < 2) {
+                                 if (secureElementId == SECURE_ELEMENT_UICC_ID) {
+                                     Log.d(TAG, "UICC deselected by default");
+                                     mDeviceHost.doDeselectSecureElement(SECURE_ELEMENT_UICC_ID);
+                                     mSelectedSeId = SECURE_ELEMENT_ID_DEFAULT;
                                 }
                             }
                         }
@@ -3001,6 +3011,24 @@ public class NfcService implements DeviceHostListener {
                     new EnableDisableTask().execute(TASK_DISABLE);
                 } else if (!isAirplaneModeOn && mPrefs.getBoolean(PREF_NFC_ON, mNfcOnDefault)) {
                     new EnableDisableTask().execute(TASK_ENABLE);
+                }
+            } else if (intent.getAction().equals(TelephonyIntents.ACTION_SIM_STATE_CHANGED)) {
+                String stateExtra = intent.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE);
+                Log.d(TAG, "Sim State Changed: " + stateExtra);
+                if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(stateExtra) ||
+                       IccCardConstants.INTENT_VALUE_ICC_LOADED.equals(stateExtra)) {
+                    if (mState == NfcAdapter.STATE_ON &&
+                            mPrefs.getBoolean(PREF_FIRST_BOOT, true) == false) {
+                        // Disable NFC service
+                        new EnableDisableTask().execute(TASK_DISABLE);
+                        // Wait 3 sec for SIM debounce
+                        try {
+                            Thread.sleep(3000);
+                        } catch (InterruptedException e) {
+                        }
+                        // Reenable NFC service again
+                        new EnableDisableTask().execute(TASK_ENABLE);
+                    }
                 }
             } else if (action.equals(Intent.ACTION_USER_SWITCHED)) {
                 mP2pLinkManager.onUserSwitched();
