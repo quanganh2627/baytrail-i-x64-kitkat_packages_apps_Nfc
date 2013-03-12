@@ -86,6 +86,9 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ExecutionException;
 
+import com.android.internal.telephony.TelephonyIntents;
+import com.android.internal.telephony.IccCardConstants;
+
 public class NfcService implements DeviceHostListener {
     private static final String ACTION_MASTER_CLEAR_NOTIFICATION = "android.intent.action.MASTER_CLEAR_NOTIFICATION";
 
@@ -134,6 +137,7 @@ public class NfcService implements DeviceHostListener {
     static final int TASK_DISABLE = 2;
     static final int TASK_BOOT = 3;
     static final int TASK_EE_WIPE = 4;
+    static final int TASK_RESET = 5;
 
     // Screen state, used by mScreenState
     static final int SCREEN_STATE_UNKNOWN = 0;
@@ -212,6 +216,8 @@ public class NfcService implements DeviceHostListener {
             "com.android.nfc_extras.action.SE_LISTEN_ACTIVATED";
     public static final String ACTION_SE_LISTEN_DEACTIVATED =
             "com.android.nfc_extras.action.SE_LISTEN_DEACTIVATED";
+
+    private boolean mIsLocked = false;
 
     // NFC Execution Environment
     // fields below are protected by this
@@ -505,6 +511,7 @@ public class NfcService implements DeviceHostListener {
         filter.addAction(Intent.ACTION_SCREEN_ON);
         filter.addAction(Intent.ACTION_USER_PRESENT);
         filter.addAction(Intent.ACTION_USER_SWITCHED);
+        filter.addAction(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
         registerForAirplaneMode(filter);
         mContext.registerReceiverAsUser(mReceiver, UserHandle.ALL, filter, null, null);
 
@@ -649,6 +656,8 @@ public class NfcService implements DeviceHostListener {
      * <p>{@link #TASK_BOOT} does first boot work and may enable NFC
      * <p>{@link #TASK_EE_WIPE} wipes the Execution Environment, and in the
      * process may temporarily enable the NFC adapter
+     * <p>{@link #TASK_RESET} reset the NFC adapter by disabling and enabling
+     * it
      */
     class EnableDisableTask extends AsyncTask<Integer, Void, Void> {
         @Override
@@ -678,6 +687,16 @@ public class NfcService implements DeviceHostListener {
                 case TASK_DISABLE:
                     disableInternal();
                     break;
+                case TASK_RESET:
+                    disableInternal();
+                    try {
+                        // For UICC debounce time
+                        Thread.sleep(3000);
+                    } catch (InterruptedException e) {
+                        // Nothing to do!
+                    }
+                    enableInternal();
+                    break;
                 case TASK_BOOT:
                     Log.d(TAG,"checking on firmware download");
                     boolean airplaneOverride = mPrefs.getBoolean(PREF_AIRPLANE_OVERRIDE, false);
@@ -695,9 +714,9 @@ public class NfcService implements DeviceHostListener {
                     }
                     if (mPrefs.getBoolean(PREF_FIRST_BOOT, true)) {
                         Log.i(TAG, "First Boot");
+                        executeEeWipe();
                         mPrefsEditor.putBoolean(PREF_FIRST_BOOT, false);
                         mPrefsEditor.apply();
-                        executeEeWipe();
                     }
                     break;
                 case TASK_EE_WIPE:
@@ -746,13 +765,13 @@ public class NfcService implements DeviceHostListener {
             synchronized(NfcService.this) {
                 mObjectMap.clear();
                 mP2pLinkManager.enableDisable(mIsNdefPushEnabled, true);
-                updateState(NfcAdapter.STATE_ON);
+
             }
 
             initSoundPool();
 
             /* Start polling loop */
-
+            updateState(NfcAdapter.STATE_ON);
             applyRouting(true);
             return true;
         }
@@ -1779,6 +1798,12 @@ public class NfcService implements DeviceHostListener {
         }
     }
 
+    boolean isNfcEnablingOrShuttingDown() {
+        synchronized (this) {
+            return (mState == NfcAdapter.STATE_TURNING_ON || mState == NfcAdapter.STATE_TURNING_OFF);
+        }
+    }
+
     boolean isNfcEnabled() {
         synchronized (this) {
             return mState == NfcAdapter.STATE_ON;
@@ -2492,6 +2517,28 @@ public class NfcService implements DeviceHostListener {
                     new EnableDisableTask().execute(TASK_DISABLE);
                 } else if (!isAirplaneModeOn && mPrefs.getBoolean(PREF_NFC_ON, mNfcOnDefault)) {
                     new EnableDisableTask().execute(TASK_ENABLE);
+                }
+            } else if (intent.getAction().equals(TelephonyIntents.ACTION_SIM_STATE_CHANGED)) {
+                String stateExtra = intent.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE);
+                Log.d(TAG, "Sim State Changed: " + stateExtra);
+                if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(stateExtra)) {
+                    mIsLocked = false;
+                }
+
+                if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(stateExtra) ||
+                       IccCardConstants.INTENT_VALUE_ICC_LOCKED.equals(stateExtra) ||
+                       IccCardConstants.INTENT_VALUE_ICC_IMSI.equals(stateExtra)) {
+
+                    if ((mState == NfcAdapter.STATE_ON) &&
+                            (mPrefs.getBoolean(PREF_FIRST_BOOT, true) == false) &&
+                            (!isNfcEnablingOrShuttingDown()) && !mIsLocked) {
+                        // Reset NFC service
+                        new EnableDisableTask().execute(TASK_RESET);
+                    }
+
+                    if (IccCardConstants.INTENT_VALUE_ICC_LOCKED.equals(stateExtra)) {
+                        mIsLocked = true;
+                    }
                 }
             } else if (action.equals(Intent.ACTION_USER_SWITCHED)) {
                 mP2pLinkManager.onUserSwitched();
