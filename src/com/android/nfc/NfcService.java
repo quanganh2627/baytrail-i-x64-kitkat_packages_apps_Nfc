@@ -433,7 +433,12 @@ public class NfcService implements DeviceHostListener {
 
         Looper brcastRcvThreadLooper = broadcastReceiverThread.getLooper();
 
-        mReceiverThreadHandler = new Handler(brcastRcvThreadLooper);
+        if (brcastRcvThreadLooper != null) {
+            mReceiverThreadHandler = new Handler(brcastRcvThreadLooper);
+        } else {
+            Log.e(TAG, "Failed to get Looper");
+            return;
+        }
 
         // Intents only for owner
         IntentFilter ownerFilter = new IntentFilter(NativeNfcManager.INTERNAL_TARGET_DESELECTED_ACTION);
@@ -579,19 +584,27 @@ public class NfcService implements DeviceHostListener {
     private ServiceConnection mServiceConnection = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder service) {
             mModemManagerService = IMmgrService.Stub.asInterface((IBinder)service);
-            try {
-                Log.d(TAG, "Registering callback interface");
-                mModemManagerService.registerCallback(mMmgrCallbacks);
-                Log.d(TAG, "Recover modem if Modem is Down");
-                mModemManagerService.checkModemDown();
-            } catch (RemoteException e) {
-                Log.e(TAG, "Unable to register callback");
+            if (mModemManagerService != null) {
+                try {
+                    Log.d(TAG, "Registering callback interface");
+                    mModemManagerService.registerCallback(mMmgrCallbacks);
+                    Log.d(TAG, "Recover modem if Modem is Down");
+                    mModemManagerService.checkModemDown();
+                } catch (RemoteException e) {
+                    Log.e(TAG, "Unable to register callback");
+                }
+            } else {
+                Log.e(TAG, "Failed to to bind Service");
+                return;
             }
         }
 
         public void onServiceDisconnected(ComponentName className) {
             Log.e(TAG, "Service has unexpectedly disconnected");
-            mModemManagerService = null;
+            if (mState == NfcAdapter.STATE_ON || mState == NfcAdapter.STATE_TURNING_ON) {
+                    new EnableDisableTask().execute(TASK_DISABLE);
+                    new EnableDisableTask().execute(TASK_ENABLE);
+            }
         }
     };
 
