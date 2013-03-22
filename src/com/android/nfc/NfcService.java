@@ -122,6 +122,7 @@ public class NfcService implements DeviceHostListener {
 
     static final int MSG_NDEF_TAG = 0;
     static final int MSG_CARD_EMULATION = 1;
+    static final int MSG_CARD_EMULATION_EXT = 17;
     static final int MSG_LLCP_LINK_ACTIVATION = 2;
     static final int MSG_LLCP_LINK_DEACTIVATED = 3;
     static final int MSG_TARGET_DESELECTED = 4;
@@ -275,6 +276,7 @@ public class NfcService implements DeviceHostListener {
     private static NfcService sService;
 
     private static boolean mNfcOnDefault;
+    private static boolean mUseNxpSEPatch;
 
     public static void enforceAdminPerm(Context context) {
         context.enforceCallingOrSelfPermission(ADMIN_PERM, ADMIN_PERM_ERROR);
@@ -321,13 +323,20 @@ public class NfcService implements DeviceHostListener {
     @Override
     public void onCardEmulationAidSelected(byte[] aid, byte[] data) {
         Pair<byte[], byte[]> transactionInfo = new Pair<byte[], byte[]>(aid,data);
-        sendMessage(NfcService.MSG_CARD_EMULATION, transactionInfo);
+        sendMessage(NfcService.MSG_CARD_EMULATION_EXT, transactionInfo);
     }
+
 
     @Override
     public void onConnectivityEvent() {
         sendMessage(NfcService.MSG_CONNECTIVITY_EVENT, null);
     }
+
+    @Override
+    public void onCardEmulationAidSelected(byte[] aid) {
+        sendMessage(NfcService.MSG_CARD_EMULATION, aid);
+    }
+
     /**
      * Notifies P2P Device detected, to activate LLCP link
      */
@@ -409,6 +418,13 @@ public class NfcService implements DeviceHostListener {
         mNfceeAccessControl = new NfceeAccessControl(mContext);
 
         mNfcOnDefault = mContext.getResources().getBoolean(R.bool.nfc_on_default);
+        mUseNxpSEPatch = mContext.getResources().getBoolean(R.bool.use_nxp_se_patch);
+
+        if (mUseNxpSEPatch) {
+            Log.d(TAG, "NXP SE patch for HCI stack enabled");
+        } else {
+            Log.d(TAG, "NXP SE patch for HCI stack disabled");
+        }
 
         mPrefs = mContext.getSharedPreferences(PREF, Context.MODE_PRIVATE);
         mPrefsEditor = mPrefs.edit();
@@ -810,8 +826,13 @@ public class NfcService implements DeviceHostListener {
                 watchDog.cancel();
             }
 
-            Log.i(TAG, "Check NFC Secure Element configuration");
-            checkSecureElementConfuration();
+            if (mUseNxpSEPatch) {
+                Log.i(TAG, "Check NFC Secure Element configuration");
+                checkSecureElementConfuration();
+            } else {
+                // TODO : For NCI stack, routing always ON
+                mEeRoutingState = ROUTE_ALWAYS_ON;
+            }
 
             synchronized(NfcService.this) {
                 mObjectMap.clear();
@@ -823,7 +844,7 @@ public class NfcService implements DeviceHostListener {
             initSoundPool();
 
             /* Start polling loop */
-            applyRouting(false);
+            applyRouting(!mUseNxpSEPatch);
             return true;
         }
 
@@ -1318,7 +1339,7 @@ public class NfcService implements DeviceHostListener {
                 return ErrorCodes.SUCCESS;
             }
             /* Restart polling loop for notification */
-            applyRouting(false);
+            applyRouting(!mUseNxpSEPatch);
             return ErrorCodes.ERROR_DISCONNECT;
         }
 
@@ -2171,13 +2192,21 @@ public class NfcService implements DeviceHostListener {
                     if (force || !mNfceeRouteEnabled) {
                         Log.d(TAG, "NFC-EE ON");
                         mNfceeRouteEnabled = true;
-                        mDeviceHost.doSelectSecureElement(mSelectedSeId);
+                        if (mUseNxpSEPatch) {
+                            mDeviceHost.doSelectSecureElement(mSelectedSeId);
+                        } else {
+                            mDeviceHost.doSelectSecureElement();
+                        }
                     }
                 } else {
                     if (force ||  mNfceeRouteEnabled) {
                         Log.d(TAG, "NFC-EE OFF");
                         mNfceeRouteEnabled = false;
-                        mDeviceHost.doDeselectSecureElement(mSelectedSeId);
+                        if (mUseNxpSEPatch) {
+                            mDeviceHost.doDeselectSecureElement(mSelectedSeId);
+                        } else {
+                            mDeviceHost.doDeselectSecureElement();
+                        }
                     }
                 }
 
@@ -2343,6 +2372,19 @@ public class NfcService implements DeviceHostListener {
                     break;
 
                 case MSG_CARD_EMULATION:
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "Card Emulation message");
+                    }
+                    byte[] aid = (byte[]) msg.obj;
+                    /* Send broadcast */
+                    Intent aidIntent = new Intent();
+                    aidIntent.setAction(ACTION_AID_SELECTED);
+                    aidIntent.putExtra(EXTRA_AID, aid);
+                    if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG, "Broadcasting " + ACTION_AID_SELECTED);
+                    sendSeBroadcast(aidIntent);
+                    break;
+
+                case MSG_CARD_EMULATION_EXT:
                     Pair<byte[], byte[]> transactionInfo = (Pair<byte[], byte[]>) msg.obj;
 
                     /* Send broadcast ordered */

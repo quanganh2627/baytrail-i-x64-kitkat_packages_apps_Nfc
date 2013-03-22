@@ -183,6 +183,14 @@ public class NativeNfcManager implements DeviceHost {
     public native void doDeselectSecureElement(int seID);
 
     @Override
+    public void doSelectSecureElement(){
+    }
+
+    @Override
+    public void doDeselectSecureElement(){
+    }
+
+    @Override
     public native void doUiccSetSwpMode(int mode);
 
     private native NativeLlcpConnectionlessSocket doCreateLlcpConnectionlessSocket(int nSap,

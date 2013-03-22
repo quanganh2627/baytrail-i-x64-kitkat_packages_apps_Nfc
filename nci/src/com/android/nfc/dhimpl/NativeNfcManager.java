@@ -75,6 +75,9 @@ public class NativeNfcManager implements DeviceHost {
 
     private native boolean doDownload();
 
+    public void doUiccSetSwpMode(int mode){
+    }
+
     public native int doGetLastError();
 
     @Override
@@ -132,6 +135,13 @@ public class NativeNfcManager implements DeviceHost {
     @Override
     public native void doDeselectSecureElement();
 
+    @Override
+    public void doSelectSecureElement(int seID){
+    }
+
+    @Override
+    public void doDeselectSecureElement(int seID){
+    }
 
     private native NativeLlcpConnectionlessSocket doCreateLlcpConnectionlessSocket(int nSap,
             String sn);
