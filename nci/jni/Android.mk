@@ -2,7 +2,7 @@ VOB_COMPONENTS := external/libnfc-nci/src
 NFA := $(VOB_COMPONENTS)/nfa
 NFC := $(VOB_COMPONENTS)/nfc
 
-PN547_EXT_PATH := device/intel/nfc/pn547/extns
+PN547_EXT_PATH := vendor/intel/nfc/pn547/extns
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 LOCAL_PRELINK_MODULE := false
