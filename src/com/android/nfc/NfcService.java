@@ -1052,6 +1052,28 @@ public class NfcService implements DeviceHostListener {
                 new EnableDisableTask().execute(TASK_DISABLE);
             }
         }
+
+        public void modemOutOfOrder() {
+            Log.d(TAG, "Modem out of order message received");
+            if (mState == NfcAdapter.STATE_OFF) {
+                releaseCwsMmgrResources();
+            } else if (mState != NfcAdapter.STATE_TURNING_OFF) {
+                new EnableDisableTask().execute(TASK_DISABLE);
+            }
+        }
+
+        public void modemAcquireError() {
+            Log.e(TAG, "modemCommunicationError: modemManagerAcquireAsync failure");
+        }
+        public void modemConnectError() {
+            Log.e(TAG, "modemCommunicationError: modemManagerConnectAsync failure");
+        }
+        public void modemAckShutdownError() {
+            Log.e(TAG, "modemCommunicationError: failure sending shutdown ack");
+        }
+        public void modemAckResetError() {
+            Log.e(TAG, "modemCommunicationError: failure sending cold reset ack");
+        }
     };
 
     final class NfcAdapterService extends INfcAdapter.Stub {
