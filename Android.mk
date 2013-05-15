@@ -17,6 +17,7 @@ LOCAL_PACKAGE_NAME := Nfc
 LOCAL_CERTIFICATE := platform
 
 LOCAL_STATIC_JAVA_LIBRARIES := NfcLogTags
+LOCAL_JAVA_LIBRARIES := org.simalliance.openmobileapi
 
 LOCAL_REQUIRED_MODULES  := libnfc_jni
 
@@ -42,6 +43,7 @@ LOCAL_OVERRIDES_PACKAGES := Nfc
 LOCAL_CERTIFICATE := platform
 
 LOCAL_STATIC_JAVA_LIBRARIES := NfcLogTags
+LOCAL_JAVA_LIBRARIES := org.simalliance.openmobileapi
 
 LOCAL_REQUIRED_MODULES  := libnfc_nci_jni
 

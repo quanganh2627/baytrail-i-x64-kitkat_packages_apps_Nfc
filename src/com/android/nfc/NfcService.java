@@ -88,6 +88,7 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.UserHandle;
+import android.content.pm.ResolveInfo;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.Pair;
@@ -2604,7 +2605,7 @@ public class NfcService implements DeviceHostListener {
                     if (Log.isLoggable(TAG, Log.DEBUG)) {
                         Log.d(TAG, "Start Activity Card Emulation event");
                     }
-                    mContext.sendBroadcast(TransactionIntent, NFC_PERM);
+                    sendNfcEventBroadcast(TransactionIntent, transactionInfo.first);
                     break;
 
                 case MSG_CONNECTIVITY_EVENT:
@@ -2826,6 +2827,73 @@ public class NfcService implements DeviceHostListener {
                 }
             }
         }
+
+        private void sendNfcEventBroadcast(Intent intent, byte[] aid) {
+            Log.i(TAG, "Send NFC event: " + intent);
+
+            // Resume app switches so the receivers can start activites without delay
+            mNfcDispatcher.resumeAppSwitches();
+
+            // Add additional flag to the intent
+            intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
+
+            // Retreive the list of packages which registered themselves
+            // to receive this intent.
+            PackageManager pm = mContext.getPackageManager();
+            List<ResolveInfo> list =
+                    pm.queryBroadcastReceivers(intent, PackageManager.MATCH_DEFAULT_ONLY);
+
+            if (list.size() == 0) {
+                Log.i(TAG, "NO application to handle this NFC event");
+            }
+            else {
+                // Select in which Se we need to retreive the rules
+                String se = null;
+
+                switch(mSelectedSeId) {
+                    case SECURE_ELEMENT_UICC_ID:
+                        se = NfceeAccessControl.READER_UICC;
+                        break;
+                    case SECURE_ELEMENT_SMX_ID:
+                        se = NfceeAccessControl.READER_ESE;
+                        break;
+                    default:
+                        return;
+                }
+
+                // Build the list of packages interrested in receiving this intent
+                String[] packages = new String[list.size()];
+
+                for (int i = 0; i < list.size(); i++) {
+                    ResolveInfo resolveInfo = list.get(i);
+                    packages[i] = resolveInfo.activityInfo.applicationInfo.packageName;
+                }
+
+                try {
+                    // Get access rigths for all the packages of the list
+                    boolean[] access = mNfceeAccessControl.checkForNfcEvent(se, packages, aid);
+
+                    // Send the intent only to the packages which have been authorized
+                    for(int i = 0; i < packages.length; i++) {
+                        if(access[i]) {
+                            Log.i(TAG, "Send NFC event to: " + packages[i]);
+                            intent.setPackage(packages[i]);
+                            mContext.sendBroadcast(intent);
+                        }
+                        else {
+                            Log.i(TAG, "Permission denied, NFC event is NOT sent to: " + packages[i]);
+                        }
+                    }
+                }
+                catch(SecurityException e) {
+                   Log.e(TAG, "Got SecurityException while trying to send NFC event: " + e);
+                }
+                catch(RuntimeException e) {
+                   Log.e(TAG, "Got RuntimeException while trying to send NFC event: " + e);
+                }
+            }
+        }
+
 
         private boolean llcpActivated(NfcDepEndpoint device) {
             Log.d(TAG, "LLCP Activation message");
