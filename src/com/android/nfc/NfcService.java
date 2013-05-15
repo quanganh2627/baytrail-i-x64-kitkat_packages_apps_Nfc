@@ -310,6 +310,7 @@ public class NfcService implements DeviceHostListener {
     boolean mIsDebugBuild;
     boolean mIsHceCapable;
     NfceeAccessControl mNfceeAccessControl;
+    SmartcardProxy mSmartcardProxy;
 
     private NfcDispatcher mNfcDispatcher;
     private PowerManager mPowerManager;
@@ -547,6 +548,7 @@ public class NfcService implements DeviceHostListener {
         mEeRoutingState = ROUTE_OFF;
 
         mNfceeAccessControl = new NfceeAccessControl(mContext);
+        mSmartcardProxy = new SmartcardProxy(mContext);
 
         mNfcOnDefault = mContext.getResources().getBoolean(R.bool.nfc_on_default);
         mClfIsPn547 = "pn547".equals(SystemProperties.get("ro.nfc.nfcc", ""));
@@ -2367,11 +2369,15 @@ public class NfcService implements DeviceHostListener {
                         Log.d(TAG, "Event source " + dataSrcInfo.second);
 
                         String evtSrc = "";
+                        String reader = "";
                         if(dataSrcInfo.second == PN547NfcAdapterExt.UICC_ID_TYPE) {
                             evtSrc = PN547NfcAdapterExt.UICC_ID;
+                            reader = SmartcardProxy.READER_UICC;
                         } else if(dataSrcInfo.second == PN547NfcAdapterExt.SMART_MX_ID_TYPE) {
                             evtSrc = PN547NfcAdapterExt.SMART_MX_ID;
+                            reader = SmartcardProxy.READER_ESE;
                         }
+
                         /* Send broadcast ordered */
                         Intent TransactionIntent = new Intent();
                         TransactionIntent.setAction(PN547NfcAdapterExt.ACTION_TRANSACTION_DETECTED);
@@ -2382,8 +2388,12 @@ public class NfcService implements DeviceHostListener {
                         if (DBG) {
                             Log.d(TAG, "Start Activity Card Emulation event");
                         }
-                        mContext.sendBroadcast(TransactionIntent, NFC_PERM);
 
+                        if(mSmartcardProxy.isSmartcardServiceAvailable()) {
+                            mSmartcardProxy.sendNfcEventBroadcast(TransactionIntent, transactionInfo.first, reader);
+                        } else {
+                            mContext.sendBroadcast(TransactionIntent, NFC_PERM);
+                        }
                         aid = transactionInfo.first;
                     }
                     else
