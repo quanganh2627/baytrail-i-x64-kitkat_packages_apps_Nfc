@@ -38,7 +38,7 @@ extern "C"
     #include "nfa_cho_api.h"
     #include "ce_api.h"
 #ifdef NXP_EXT
-    #include "phNxpNciExtns.h"
+    #include "phNxpExtns.h"
 #endif
 }
 
@@ -131,7 +131,9 @@ static UINT32               sConfigUpdated = 0;
 #define DEFAULT_TECH_MASK           (NFA_TECHNOLOGY_MASK_A \
                                      | NFA_TECHNOLOGY_MASK_B \
                                      | NFA_TECHNOLOGY_MASK_F \
-                                     | NFA_TECHNOLOGY_MASK_ISO15693 )
+                                     | NFA_TECHNOLOGY_MASK_A_ACTIVE \
+                                     | NFA_TECHNOLOGY_MASK_ISO15693 \
+                                     | NFA_TECHNOLOGY_MASK_F_ACTIVE)
 #else
 #define DEFAULT_TECH_MASK           (NFA_TECHNOLOGY_MASK_A \
                                      | NFA_TECHNOLOGY_MASK_B \
@@ -141,7 +143,6 @@ static UINT32               sConfigUpdated = 0;
                                      | NFA_TECHNOLOGY_MASK_A_ACTIVE \
                                      | NFA_TECHNOLOGY_MASK_F_ACTIVE)
 #endif
-
 
 static void nfaConnectionCallback (UINT8 event, tNFA_CONN_EVT_DATA *eventData);
 static void nfaDeviceManagementCallback (UINT8 event, tNFA_DM_CBACK_DATA *eventData);
@@ -305,8 +306,9 @@ static void nfaConnectionCallback (UINT8 connEvent, tNFA_CONN_EVT_DATA* eventDat
     case NFA_ACTIVATED_EVT: // NFC link/protocol activated
         ALOGD("%s: NFA_ACTIVATED_EVT: gIsSelectingRfInterface=%d, sIsDisabling=%d", __FUNCTION__, gIsSelectingRfInterface, sIsDisabling);
 #ifdef NXP_EXT
-        if(ExtnsConnect == 0x01)
+        if (EXTNS_GetConnectFlag() == TRUE)
         {
+            NfcTag::getInstance().setActivationState ();
             nativeNfcTag_doConnectStatus(true);
             break;
         }
@@ -329,6 +331,7 @@ static void nfaConnectionCallback (UINT8 connEvent, tNFA_CONN_EVT_DATA* eventDat
             // Disable RF field events in case of p2p
             UINT8  nfa_disable_rf_events[] = { 0x00 };
             ALOGD ("%s: Disabling RF field events", __FUNCTION__);
+#ifndef NXP_EXT
             status = NFA_SetConfig(NCI_PARAM_ID_RF_FIELD_INFO, sizeof(nfa_disable_rf_events),
                     &nfa_disable_rf_events[0]);
             if (status == NFA_STATUS_OK) {
@@ -336,6 +339,7 @@ static void nfaConnectionCallback (UINT8 connEvent, tNFA_CONN_EVT_DATA* eventDat
             } else {
                 ALOGE ("%s: Failed to disable RF field events", __FUNCTION__);
             }
+#endif
         }
         else if (pn544InteropIsBusy() == false)
         {
@@ -369,7 +373,7 @@ static void nfaConnectionCallback (UINT8 connEvent, tNFA_CONN_EVT_DATA* eventDat
         }
 
 #ifdef NXP_EXT
-        if (ExtnsDeactivate == 0x01)
+        else if (EXTNS_GetDeactivateFlag() == TRUE)
         {
             nativeNfcTag_doDeactivateStatus(0);
         }
@@ -685,12 +689,13 @@ void nfaDeviceManagementCallback (UINT8 dmEvent, tNFA_DM_CBACK_DATA* eventData)
                 sNfaDisableEvent.notifyOne();
             }
             sDiscoveryEnabled = false;
-#ifndef NXP_EXT
             PowerSwitch::getInstance ().abort ();
-#endif
 
             if (!sIsDisabling && sIsNfaEnabled)
             {
+#ifdef NXP_EXT
+                EXTNS_Close();
+#endif
                 NFA_Disable(FALSE);
                 sIsDisabling = true;
             }
@@ -699,17 +704,13 @@ void nfaDeviceManagementCallback (UINT8 dmEvent, tNFA_DM_CBACK_DATA* eventData)
                 sIsNfaEnabled = false;
                 sIsDisabling = false;
             }
-#ifndef NXP_EXT
             PowerSwitch::getInstance ().initialize (PowerSwitch::UNKNOWN_LEVEL);
-#endif
             ALOGD ("%s: aborted all waiting events", __FUNCTION__);
         }
         break;
 
     case NFA_DM_PWR_MODE_CHANGE_EVT:
-#ifndef NXP_EXT
         PowerSwitch::getInstance ().deviceManagementCallback (dmEvent, eventData);
-#endif
         break;
 
     default:
@@ -741,9 +742,7 @@ static jboolean nfcManager_doInitialize (JNIEnv* e, jobject o)
         goto TheEnd;
     }
 
-#ifndef NXP_EXT
     PowerSwitch::getInstance ().initialize (PowerSwitch::FULL_POWER);
-#endif
 
     {
         unsigned long num = 0;
@@ -772,7 +771,7 @@ static jboolean nfcManager_doInitialize (JNIEnv* e, jobject o)
                 sNfaEnableEvent.wait(); //wait for NFA command to finish
             }
 #ifdef NXP_EXT
-            phNxpNciExtns_Init(nfaDeviceManagementCallback, nfaConnectionCallback);
+            EXTNS_Init(nfaDeviceManagementCallback, nfaConnectionCallback);
 #endif
         }
 
@@ -823,7 +822,7 @@ static jboolean nfcManager_doInitialize (JNIEnv* e, jobject o)
         if (sIsNfaEnabled)
         {
 #ifdef NXP_EXT
-            phNxpNciExtns_Close();
+            EXTNS_Close();
 #endif
             stat = NFA_Disable (FALSE /* ungraceful */);
         }
@@ -832,10 +831,8 @@ static jboolean nfcManager_doInitialize (JNIEnv* e, jobject o)
     }
 
 TheEnd:
-#ifndef NXP_EXT
     if (sIsNfaEnabled)
         PowerSwitch::getInstance ().setLevel (PowerSwitch::LOW_POWER);
-#endif
     ALOGD ("%s: exit", __FUNCTION__);
     return sIsNfaEnabled ? JNI_TRUE : JNI_FALSE;
 }
@@ -873,9 +870,7 @@ static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
 
     ALOGD ("%s: sIsSecElemSelected=%u", __FUNCTION__, sIsSecElemSelected);
 
-#ifndef NXP_EXT
     PowerSwitch::getInstance ().setLevel (PowerSwitch::FULL_POWER);
-#endif
 
     if (sRfEnabled) {
         // Stop RF discovery to reconfigure
@@ -912,9 +907,7 @@ static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
     // Actually start discovery.
     startRfDiscovery (true);
 
-#ifndef NXP_EXT
     PowerSwitch::getInstance ().setModeOn (PowerSwitch::DISCOVERY);
-#endif
 
     ALOGD ("%s: exit", __FUNCTION__);
 }
@@ -962,10 +955,8 @@ void nfcManager_disableDiscovery (JNIEnv* e, jobject o)
     PeerToPeer::getInstance().enableP2pListening (false);
 
     //if nothing is active after this, then tell the controller to power down
-#ifndef NXP_EXT
     if (! PowerSwitch::getInstance ().setModeOff (PowerSwitch::DISCOVERY))
         PowerSwitch::getInstance ().setLevel (PowerSwitch::LOW_POWER);
-#endif
 
 TheEnd:
     ALOGD ("%s: exit", __FUNCTION__);
@@ -1131,7 +1122,7 @@ static jboolean nfcManager_doDeinitialize (JNIEnv* e, jobject o)
     {
         SyncEventGuard guard (sNfaDisableEvent);
 #ifdef NXP_EXT
-        phNxpNciExtns_Close();
+        EXTNS_Close();
 #endif
         tNFA_STATUS stat = NFA_Disable (TRUE /* graceful */);
         if (stat == NFA_STATUS_OK)
@@ -1286,9 +1277,7 @@ static void nfcManager_doSelectSecureElement(JNIEnv *e, jobject o)
     ALOGD ("%s: enter", __FUNCTION__);
     bool stat = true;
 
-#ifndef NXP_EXT
     PowerSwitch::getInstance ().setLevel (PowerSwitch::FULL_POWER);
-#endif
 
     if (sRfEnabled) {
         // Stop RF Discovery if we were polling
@@ -1309,9 +1298,7 @@ static void nfcManager_doSelectSecureElement(JNIEnv *e, jobject o)
 TheEnd:
     startRfDiscovery (true);
 
-#ifndef NXP_EXT
     PowerSwitch::getInstance ().setModeOn (PowerSwitch::SE_ROUTING);
-#endif
 
     ALOGD ("%s: exit", __FUNCTION__);
 }
@@ -1340,7 +1327,6 @@ static void nfcManager_doDeselectSecureElement(JNIEnv *e, jobject o)
         goto TheEnd;
     }
 
-#ifndef NXP_EXT
     if (PowerSwitch::getInstance ().getLevel() == PowerSwitch::LOW_POWER)
     {
         ALOGD ("%s: do not deselect while power is OFF", __FUNCTION__);
@@ -1353,7 +1339,6 @@ static void nfcManager_doDeselectSecureElement(JNIEnv *e, jobject o)
         startRfDiscovery (false);
         bRestartDiscovery = true;
     }
-#endif
 
     stat = SecureElement::getInstance().routeToDefault ();
     sIsSecElemSelected = false;
@@ -1364,14 +1349,12 @@ static void nfcManager_doDeselectSecureElement(JNIEnv *e, jobject o)
         SecureElement::getInstance().deactivate (0xABCDEF);
 
 TheEnd:
-#ifndef NXP_EXT
     if (bRestartDiscovery)
         startRfDiscovery (true);
 
     //if nothing is active after this, then tell the controller to power down
     if (! PowerSwitch::getInstance ().setModeOff (PowerSwitch::SE_ROUTING))
         PowerSwitch::getInstance ().setLevel (PowerSwitch::LOW_POWER);
-#endif
 
     ALOGD ("%s: exit", __FUNCTION__);
 }
@@ -1703,9 +1686,7 @@ static JNINativeMethod gMethods[] =
 int register_com_android_nfc_NativeNfcManager (JNIEnv *e)
 {
     ALOGD ("%s: enter", __FUNCTION__);
-#ifndef NXP_EXT
     PowerSwitch::getInstance ().initialize (PowerSwitch::UNKNOWN_LEVEL);
-#endif
     ALOGD ("%s: exit", __FUNCTION__);
     return jniRegisterNativeMethods (e, gNativeNfcManagerClassName, gMethods, NELEM (gMethods));
 }

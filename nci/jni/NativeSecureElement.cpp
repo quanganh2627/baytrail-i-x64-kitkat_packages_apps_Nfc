@@ -56,10 +56,8 @@ static jint nativeNfcSecureElement_doOpenSecureElementConnection (JNIEnv* e, job
         goto TheEnd;
     }
     //tell the controller to power up to get ready for sec elem operations
-#ifndef NXP_EXT
     PowerSwitch::getInstance ().setLevel (PowerSwitch::FULL_POWER);
     PowerSwitch::getInstance ().setModeOn (PowerSwitch::SE_CONNECTED);
-#endif
 
     //if controller is not routing AND there is no pipe connected,
     //then turn on the sec elem
@@ -78,12 +76,10 @@ static jint nativeNfcSecureElement_doOpenSecureElementConnection (JNIEnv* e, job
 
     //if code fails to connect to the secure element, and nothing is active, then
     //tell the controller to power down
-#ifndef NXP_EXT
     if ((!stat) && (! PowerSwitch::getInstance ().setModeOff (PowerSwitch::SE_CONNECTED)))
     {
         PowerSwitch::getInstance ().setLevel (PowerSwitch::LOW_POWER);
     }
-#endif
 
 TheEnd:
     ALOGD("%s: exit; return handle=0x%X", __FUNCTION__, secElemHandle);
@@ -115,11 +111,9 @@ static jboolean nativeNfcSecureElement_doDisconnectSecureElementConnection (JNIE
     if (! SecureElement::getInstance().isBusy())
         SecureElement::getInstance().deactivate (handle);
 
-#ifndef NXP_EXT
     //if nothing is active after this, then tell the controller to power down
     if (! PowerSwitch::getInstance ().setModeOff (PowerSwitch::SE_CONNECTED))
         PowerSwitch::getInstance ().setLevel (PowerSwitch::LOW_POWER);
-#endif
 
     ALOGD("%s: exit", __FUNCTION__);
     return stat ? JNI_TRUE : JNI_FALSE;

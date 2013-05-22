@@ -46,19 +46,6 @@ const std::string P2pServer::sSnepServiceName ("urn:nfc:sn:snep");
 ** Returns:         None
 **
 *******************************************************************************/
-#ifdef NXP_EXT
-PeerToPeer::PeerToPeer ()
-:   mRemoteWKS (0),
-    mIsP2pListening (false),
-    mP2pListenTechMask (NFA_TECHNOLOGY_MASK_A
-                        | NFA_TECHNOLOGY_MASK_F),
-    mNextJniHandle (1)
-{
-    unsigned long num = 0;
-    memset (mServers, 0, sizeof(mServers));
-    memset (mClients, 0, sizeof(mClients));
-}
-#else
 PeerToPeer::PeerToPeer ()
 :   mRemoteWKS (0),
     mIsP2pListening (false),
@@ -72,7 +59,6 @@ PeerToPeer::PeerToPeer ()
     memset (mServers, 0, sizeof(mServers));
     memset (mClients, 0, sizeof(mClients));
 }
-#endif
 
 
 /*******************************************************************************
@@ -1445,19 +1431,11 @@ void PeerToPeer::nfaClientCallback (tNFA_P2P_EVT p2pEvent, tNFA_P2P_EVT_DATA* ev
         if ((pConn = sP2p.findConnection(eventData->disc.handle)) == NULL)
         {
             // If no connection, may be a client that is trying to connect
-#ifdef NXP_EXT
-            if ((pClient = sP2p.findClientCon ((tNFA_HANDLE)NFA_HANDLE_INVALID)) == NULL)
-            {
-                ALOGE ("%s: NFA_P2P_DISC_EVT: can't find conn for NFA handle: 0x%04x", fn, eventData->disc.handle);
-                return;
-            }
-#else
             if ((pClient = sP2p.findClient (eventData->disc.handle)) == NULL)
             {
                 ALOGE ("%s: NFA_P2P_DISC_EVT: can't find client for NFA handle: 0x%04x", fn, eventData->disc.handle);
                 return;
             }
-#endif
             // Unblock createDataLinkConn()
             SyncEventGuard guard (pClient->mConnectingEvent);
             pClient->mConnectingEvent.notifyOne();
