@@ -24,7 +24,7 @@ extern "C"
 {
     #include "rw_int.h"
 #ifdef NXP_EXT
-    #include "phNxpNciExtns.h"
+    #include "phNxpExtns.h"
 #endif
 }
 
@@ -358,7 +358,7 @@ void NfcTag::discoverTechnologies (tNFA_ACTIVATED& activationData)
 #ifdef NXP_EXT
     case NFC_PROTOCOL_MIFARE:
         ALOGE ("Mifare Classic detected");
-        phNxpNciExtns_MifareStd_Init(activationData); /* TODO: */
+        EXTNS_MfcInit(activationData);
         mTechList [mNumTechList] = TARGET_TYPE_ISO14443_3A;  //is TagTechnology.NFC_A by Java API
         // could be MifFare UL or Classic or Kovio
         {
@@ -482,8 +482,6 @@ void NfcTag::discoverTechnologies (tNFA_DISC_RESULT& discoveryData)
 
 #ifdef NXP_EXT
     case NFC_PROTOCOL_MIFARE:
-        ALOGE ("Mifare Classic detected");
-        /* TODO Review this */
         mTechHandles [mNumTechList] = discovery_ntf.rf_disc_id;
         mTechLibNfcTypes [mNumTechList] = discovery_ntf.protocol;
         mTechList [mNumTechList] = TARGET_TYPE_MIFARE_CLASSIC;
@@ -827,7 +825,7 @@ void NfcTag::fillNativeNfcTagMembers4 (JNIEnv* e, jclass tag_cls, jobject tag, t
             break;
 
 #ifdef NXP_EXT
-        case NFC_PROTOCOL_MIFARE://0x80:
+        case NFC_PROTOCOL_MIFARE:
             {
                 ALOGD ("%s: Mifare Classic; tech A", fn);
                 actBytes = e->NewByteArray (1);
@@ -1261,6 +1259,41 @@ bool NfcTag::isMifareUltralight ()
     ALOGD ("%s: return=%u", fn, retval);
     return retval;
 }
+#ifdef NXP_EXT
+/*******************************************************************************
+**
+** Function:        isMifareDESFire
+**
+** Description:     Whether the currently activated tag is Mifare DESFire.
+**
+** Returns:         True if tag is Mifare DESFire.
+**
+*******************************************************************************/
+bool NfcTag::isMifareDESFire ()
+{
+    static const char fn [] = "NfcTag::isMifareDESFire";
+    bool retval = false;
+
+    for (int i =0; i < mNumTechList; i++)
+    {
+        if ( (mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_A) ||
+             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_A) ||
+             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_A_ACTIVE) )
+        {
+            /* DESfire has one sak byte and 2 ATQA bytes */
+            if ( (mTechParams[i].param.pa.sens_res[0] == 0x44) &&
+                 (mTechParams[i].param.pa.sens_res[1] == 3) &&
+                 (mTechParams[i].param.pa.sel_rsp == 0x20))
+            {
+                retval = true;
+            }
+            break;
+        }
+    }
+    ALOGD ("%s: return=%u", fn, retval);
+    return retval;
+}
+#endif
 
 
 /*******************************************************************************

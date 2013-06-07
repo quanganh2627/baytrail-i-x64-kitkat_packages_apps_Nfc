@@ -2,7 +2,7 @@ VOB_COMPONENTS := external/libnfc-nci/src
 NFA := $(VOB_COMPONENTS)/nfa
 NFC := $(VOB_COMPONENTS)/nfc
 
-PN547_EXT_PATH := vendor/intel/nfc/pn547/extns
+PN547_EXT_PATH := vendor/intel/hardware/nfc/pn547/extns
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 LOCAL_PRELINK_MODULE := false
@@ -18,7 +18,7 @@ $(patsubst ./%,%, \
  )
 endef
 
-LOCAL_SRC_FILES:= $(call all-cpp-files-under, .)
+LOCAL_SRC_FILES += $(call all-cpp-files-under, .) $(call all-c-files-under, .)
 
 LOCAL_C_INCLUDES += \
     bionic \
@@ -47,10 +47,11 @@ LOCAL_SHARED_LIBRARIES := \
     libstlport
 
 ifeq ($(strip $(BOARD_HAVE_NXP_PN547)), true)
-LOCAL_CFLAGS += -DNFCC_DEVICE_PN547C1 -DNXP_EXT
+LOCAL_CFLAGS += -DNFCC_DEVICE_PN547C1 -DNXP_EXT -DNXP_UICC_ENABLE
 LOCAL_C_INCLUDES += \
     $(PN547_EXT_PATH)/inc \
-    $(PN547_EXT_PATH)/osal \
+    $(PN547_EXT_PATH)/src/common \
+    $(PN547_EXT_PATH)/src/mifare \
     $(PN547_EXT_PATH)/src
 
 LOCAL_SHARED_LIBRARIES += \

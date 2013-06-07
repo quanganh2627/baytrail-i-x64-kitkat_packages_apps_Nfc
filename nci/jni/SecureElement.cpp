@@ -49,6 +49,9 @@ namespace android
 SecureElement SecureElement::sSecElem;
 const char* SecureElement::APP_NAME = "nfc_jni";
 
+#ifdef NXP_EXT
+char bcm_nfc_location[]="/etc";
+#endif
 
 /*******************************************************************************
 **
@@ -203,7 +206,7 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
     }
 
 #ifdef NXP_EXT
-#ifdef NFCC_DEVICE_PN547C1
+
     mRouteDataSet.initialize ();
     mRouteDataSet.import (); //read XML file
     HostAidRouter::getInstance().initialize ();
@@ -215,30 +218,14 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
     return (true);
 #endif
 
-    for (xx = 0; xx < mActualNumEe; xx++)
-    {
-        if ((mEeInfo[xx].num_interface > 0) /* && (mEeInfo[xx].ee_interface[0] == NCI_NFCEE_INTERFACE_HCI_ACCESS) */)
-        {
-            ALOGD ("%s: Found HCI network, try hci register", fn);
-
-            SyncEventGuard guard (mHciRegisterEvent);
-
-            nfaStat = NFA_HciRegister (const_cast<char*>(APP_NAME), nfaHciCallback, TRUE);
-            if (nfaStat != NFA_STATUS_OK)
-            {
-                ALOGE ("%s: fail hci register; error=0x%X", fn, nfaStat);
-                return (false);
-            }
-            mHciRegisterEvent.wait();
-            break;
-        }
-    }
-#else
-
     // If the controller has an HCI Network, register for that
     for (xx = 0; xx < mActualNumEe; xx++)
     {
+#ifdef GEMATO_SE_SUPPORT
+        if (mEeInfo[xx].num_interface > 0)
+#else
         if ((mEeInfo[xx].num_interface > 0) && (mEeInfo[xx].ee_interface[0] == NCI_NFCEE_INTERFACE_HCI_ACCESS) )
+#endif
         {
             ALOGD ("%s: Found HCI network, try hci register", fn);
 
@@ -254,7 +241,6 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
             break;
         }
     }
-#endif
 
     mRouteDataSet.initialize ();
     mRouteDataSet.import (); //read XML file
@@ -338,13 +324,8 @@ bool SecureElement::getEeInfo()
             {
                 for (UINT8 xx = 0; xx < mActualNumEe; xx++)
                 {
-#ifdef NXP_EXT
-                    if ((mEeInfo[xx].num_interface != 0)/* && (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS) */)
-                        mNumEePresent++;
-#else
                     if ((mEeInfo[xx].num_interface != 0) && (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS) )
                         mNumEePresent++;
-#endif
 
                     ALOGD ("%s: EE[%u] Handle: 0x%04x  Status: %s  Num I/f: %u: (0x%02x, 0x%02x)  Num TLVs: %u",
                           fn, xx, mEeInfo[xx].ee_handle, eeStatusToString(mEeInfo[xx].ee_status), mEeInfo[xx].num_interface,
@@ -463,17 +444,10 @@ jintArray SecureElement::getListOfEeHandles (JNIEnv* e)
     for (int ii = 0; ii < mActualNumEe && cnt < mNumEePresent; ii++)
     {
         ALOGD ("%s: %u = 0x%X", fn, ii, mEeInfo[ii].ee_handle);
-#ifdef NXP_EXT
-        if ((mEeInfo[ii].num_interface == 0)/* || (mEeInfo[ii].ee_interface[0] == NCI_NFCEE_INTERFACE_HCI_ACCESS) */)
-        {
-            continue;
-        }
-#else
         if ((mEeInfo[ii].num_interface == 0) || (mEeInfo[ii].ee_interface[0] == NCI_NFCEE_INTERFACE_HCI_ACCESS) )
         {
             continue;
         }
-#endif
 
         jj = mEeInfo[ii].ee_handle & ~NFA_HANDLE_GROUP_EE;
         e->SetIntArrayRegion (list, cnt++, 1, &jj);
@@ -522,72 +496,6 @@ bool SecureElement::activate (jint seID)
         return false;
     }
 
-#ifdef NXP_EXT
-    mActiveEeHandle = getDefaultEeHandle();
-    ALOGD ("%s: active ee h=0x%X, override se=0x%X", fn, mActiveEeHandle, mActiveSeOverride);
-    if (mActiveEeHandle == NFA_HANDLE_INVALID)
-    {
-        ALOGE ("%s: ee not found", fn);
-        return false;
-    }
-
-    UINT16 override_se = 0;
-    if (mActiveSeOverride)
-        override_se = NFA_HANDLE_GROUP_EE | mActiveSeOverride;
-
-    if (mRfFieldIsOn) {
-        ALOGE("%s: RF field indication still on, resetting", fn);
-        mRfFieldIsOn = false;
-    }
-
-    ALOGD ("%s: override seid=0x%X", fn, override_se );
-    //activate every discovered secure element
-    for (int index=0; index < mActualNumEe; index++)
-    {
-        tNFA_EE_INFO& eeItem = mEeInfo[index];
-
-        if ((eeItem.ee_handle == EE_HANDLE_0xF3) || (eeItem.ee_handle == EE_HANDLE_0xF4))
-        {
-            if (override_se && (override_se != eeItem.ee_handle) )
-                continue;   // do not enable all SEs; only the override one
-
-            if (eeItem.ee_status != NFC_NFCEE_STATUS_INACTIVE)
-            {
-                ALOGD ("%s: h=0x%X already activated", fn, eeItem.ee_handle);
-                numActivatedEe++;
-                continue;
-            }
-
-            {
-                SyncEventGuard guard (mEeSetModeEvent);
-                ALOGD ("%s: set EE mode activate; h=0x%X", fn, eeItem.ee_handle);
-                if ((nfaStat = NFA_EeModeSet (eeItem.ee_handle, NFA_EE_MD_ACTIVATE)) == NFA_STATUS_OK)
-                {
-                    mEeSetModeEvent.wait (); //wait for NFA_EE_MODE_SET_EVT
-                    if (eeItem.ee_status == NFC_NFCEE_STATUS_ACTIVE)
-                        numActivatedEe++;
-                }
-                else
-                    ALOGE ("%s: NFA_EeModeSet failed; error=0x%X", fn, nfaStat);
-            }
-        }
-    } //for
-
-    for (UINT8 xx = 0; xx < mActualNumEe; xx++)
-    {
-        if ((mEeInfo[xx].num_interface != 0) /*&& (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS)*/ &&
-            (mEeInfo[xx].ee_status != NFC_NFCEE_STATUS_INACTIVE))
-        {
-            mActiveEeHandle = mEeInfo[xx].ee_handle;
-            break;
-        }
-    }
-
-    ALOGD ("%s: exit; ok=%u", fn, numActivatedEe > 0);
-    return numActivatedEe > 0;
-
-#else
-
     UINT16 overrideEeHandle = 0;
     if (mActiveSeOverride)
         overrideEeHandle = NFA_HANDLE_GROUP_EE | mActiveSeOverride;
@@ -631,11 +539,17 @@ bool SecureElement::activate (jint seID)
     } //for
 
     mActiveEeHandle = getDefaultEeHandle();
-    if (mActiveEeHandle == NFA_HANDLE_INVALID)
+    if (mActiveEeHandle == NFA_HANDLE_INVALID) {
+#ifdef NXP_EXT
+        ALOGE ("%s: ee handle not found - ES 2.2 Workaround", fn);
+        mActiveEeHandle = EE_HANDLE_0xF3;
+#else
         ALOGE ("%s: ee handle not found", fn);
+#endif
+    }
+
     ALOGD ("%s: exit; active ee h=0x%X", fn, mActiveEeHandle);
     return mActiveEeHandle != NFA_HANDLE_INVALID;
-#endif
 }
 
 
@@ -644,7 +558,7 @@ bool SecureElement::activate (jint seID)
 ** Function:        deactivate
 **
 ** Description:     Turn off the secure element.
-**                  seID: ID of secure element; 0xF3 or 0xF4.
+**                  seID: ID of secure element.
 **
 ** Returns:         True if ok.
 **
@@ -850,9 +764,9 @@ bool SecureElement::connectEE ()
     if (mNewPipeId != 0)
     {
 #ifdef NXP_EXT
-        UINT8 host = (mNewPipeId == STATIC_PIPE_0x70) ? 0x02 : 0x03;
-#else
         UINT8 host = (mNewPipeId == STATIC_PIPE_0x70) ? 0xC0 : 0x03;
+#else
+        UINT8 host = (mNewPipeId == STATIC_PIPE_0x70) ? 0x02 : 0x03;
 #endif
         UINT8 gate = (mNewPipeId == STATIC_PIPE_0x70) ? 0xF0 : 0xF1;
         nfaStat = NFA_HciAddStaticPipe(mNfaHciHandle, host, gate, mNewPipeId);
@@ -869,9 +783,9 @@ bool SecureElement::connectEE ()
             destHost = pEE->ee_tlv[0].info[0];
         else
 #ifdef NXP_EXT
-            destHost = 2;
-#else
             destHost = 0xC0;
+#else
+            destHost = 2;
 #endif
 
         // Get a list of existing gates and pipes
@@ -1416,19 +1330,6 @@ void SecureElement::adjustProtocolRoutes (RouteDataSet::Database* db, RouteSelec
     ///////////////////////
     for (int i=0; i < mActualNumEe; i++)
     {
-#ifdef NXP_EXT
-        if ((mEeInfo[i].num_interface != 0) &&
-              /*  (mEeInfo[i].ee_interface[0] != NFC_NFCEE_INTERFACE_HCI_ACCESS) && */
-                (mEeInfo[i].ee_status == NFA_EE_STATUS_ACTIVE))
-        {
-            ALOGD ("%s: delete route to EE h=0x%X", fn, mEeInfo[i].ee_handle);
-            SyncEventGuard guard (mRoutingEvent);
-            if ((nfaStat = NFA_EeSetDefaultProtoRouting (mEeInfo[i].ee_handle, 0, 0, 0)) == NFA_STATUS_OK)
-                mRoutingEvent.wait ();
-            else
-                ALOGE ("%s: fail delete route to EE; error=0x%X", fn, nfaStat);
-        }
-#else
         if ((mEeInfo[i].num_interface != 0) &&
                 (mEeInfo[i].ee_interface[0] != NFC_NFCEE_INTERFACE_HCI_ACCESS) &&
                 (mEeInfo[i].ee_status == NFA_EE_STATUS_ACTIVE))
@@ -1440,7 +1341,6 @@ void SecureElement::adjustProtocolRoutes (RouteDataSet::Database* db, RouteSelec
             else
                 ALOGE ("%s: fail delete route to EE; error=0x%X", fn, nfaStat);
         }
-#endif
     }
 
     //////////////////////
@@ -1448,49 +1348,6 @@ void SecureElement::adjustProtocolRoutes (RouteDataSet::Database* db, RouteSelec
     //////////////////////
     for (int i=0; i < mActualNumEe; i++)
     {
-#ifdef NXP_EXT
-        //if sec elem is active
-        if ((mEeInfo[i].num_interface != 0) &&
-             /*   (mEeInfo[i].ee_interface[0] != NFC_NFCEE_INTERFACE_HCI_ACCESS) && */
-                (mEeInfo[i].ee_status == NFA_EE_STATUS_ACTIVE))
-        {
-            tNFA_PROTOCOL_MASK protocolsSwitchOn = 0; //all protocols that are active at full power
-            tNFA_PROTOCOL_MASK protocolsSwitchOff = 0; //all protocols that are active when phone is turned off
-            tNFA_PROTOCOL_MASK protocolsBatteryOff = 0; //all protocols that are active when there is no power
-
-            //for every route in XML, look for protocol route;
-            //collect every protocol according to it's desired power mode
-            for (RouteDataSet::Database::iterator iter = db->begin(); iter != db->end(); iter++)
-            {
-                RouteData* routeData = *iter;
-                RouteDataForProtocol* route = NULL;
-                if (routeData->mRouteType != RouteData::ProtocolRoute)
-                    continue; //skip other kinds of routing data
-                route = (RouteDataForProtocol*) (*iter);
-                if (route->mNfaEeHandle == mEeInfo[i].ee_handle)
-                {
-                    if (route->mSwitchOn)
-                        protocolsSwitchOn |= route->mProtocol;
-                    if (route->mSwitchOff)
-                        protocolsSwitchOff |= route->mProtocol;
-                    if (route->mBatteryOff)
-                        protocolsBatteryOff |= route->mProtocol;
-                }
-            }
-
-            if (protocolsSwitchOn | protocolsSwitchOff | protocolsBatteryOff)
-            {
-                ALOGD ("%s: route to EE h=0x%X", fn, mEeInfo[i].ee_handle);
-                SyncEventGuard guard (mRoutingEvent);
-                nfaStat = NFA_EeSetDefaultProtoRouting (mEeInfo[i].ee_handle,
-                        protocolsSwitchOn, protocolsSwitchOff, protocolsBatteryOff);
-                if (nfaStat == NFA_STATUS_OK)
-                    mRoutingEvent.wait ();
-                else
-                    ALOGE ("%s: fail route to EE; error=0x%X", fn, nfaStat);
-            }
-        } //if sec elem is active
-#else
         //if sec elem is active
         if ((mEeInfo[i].num_interface != 0) &&
                 (mEeInfo[i].ee_interface[0] != NFC_NFCEE_INTERFACE_HCI_ACCESS) &&
@@ -1532,7 +1389,6 @@ void SecureElement::adjustProtocolRoutes (RouteDataSet::Database* db, RouteSelec
                     ALOGE ("%s: fail route to EE; error=0x%X", fn, nfaStat);
             }
         } //if sec elem is active
-#endif
     } //for every discovered sec elem
 
     //////////////////////
@@ -1583,11 +1439,7 @@ void SecureElement::adjustProtocolRoutes (RouteDataSet::Database* db, RouteSelec
     {
         tNFA_HANDLE eeHandle = NFA_EE_HANDLE_DH;
         if (routeSelection == SecElemRoute)
-#ifdef NXP_EXT
-            eeHandle = getDefaultEeHandle ();
-#else
             eeHandle = mActiveEeHandle;
-#endif
         ALOGD ("%s: route to default EE h=0x%X", fn, eeHandle);
         SyncEventGuard guard (mRoutingEvent);
         nfaStat = NFA_EeSetDefaultProtoRouting (eeHandle, protoMask, 0, 0);
@@ -1634,19 +1486,6 @@ void SecureElement::adjustTechnologyRoutes (RouteDataSet::Database* db, RouteSel
     ///////////////////////
     for (int i=0; i < mActualNumEe; i++)
     {
-#ifdef NXP_EXT
-        if ((mEeInfo[i].num_interface != 0) &&
-              /*  (mEeInfo[i].ee_interface[0] != NFC_NFCEE_INTERFACE_HCI_ACCESS) && */
-                (mEeInfo[i].ee_status == NFA_EE_STATUS_ACTIVE))
-        {
-            ALOGD ("%s: delete route to EE h=0x%X", fn, mEeInfo[i].ee_handle);
-            SyncEventGuard guard (mRoutingEvent);
-            if ((nfaStat = NFA_EeSetDefaultTechRouting (mEeInfo[i].ee_handle, 0, 0, 0)) == NFA_STATUS_OK)
-                mRoutingEvent.wait ();
-            else
-                ALOGE ("%s: fail delete route to EE; error=0x%X", fn, nfaStat);
-        }
-#else
         if ((mEeInfo[i].num_interface != 0) &&
                 (mEeInfo[i].ee_interface[0] != NFC_NFCEE_INTERFACE_HCI_ACCESS) &&
                 (mEeInfo[i].ee_status == NFA_EE_STATUS_ACTIVE))
@@ -1658,7 +1497,6 @@ void SecureElement::adjustTechnologyRoutes (RouteDataSet::Database* db, RouteSel
             else
                 ALOGE ("%s: fail delete route to EE; error=0x%X", fn, nfaStat);
         }
-#endif
     }
 
     //////////////////////
@@ -1757,11 +1595,7 @@ void SecureElement::adjustTechnologyRoutes (RouteDataSet::Database* db, RouteSel
     {
         tNFA_HANDLE eeHandle = NFA_EE_HANDLE_DH;
         if (routeSelection == SecElemRoute)
-#ifdef NXP_EXT
-            eeHandle = getDefaultEeHandle ();
-#else
             eeHandle = mActiveEeHandle;
-#endif
         ALOGD ("%s: route to default EE h=0x%X", fn, eeHandle);
         SyncEventGuard guard (mRoutingEvent);
         nfaStat = NFA_EeSetDefaultTechRouting (eeHandle, techMask, 0, 0);
@@ -1932,17 +1766,10 @@ bool SecureElement::getSeVerInfo(int seIndex, char * verInfo, int verInfoSz, UIN
 
     *seid = mEeInfo[seIndex].ee_handle;
 
-#ifdef NXP_EXT
-    if ((mEeInfo[seIndex].num_interface == 0) /* || (mEeInfo[seIndex].ee_interface[0] == NCI_NFCEE_INTERFACE_HCI_ACCESS) */)
-    {
-        return false;
-    }
-#else
     if ((mEeInfo[seIndex].num_interface == 0) || (mEeInfo[seIndex].ee_interface[0] == NCI_NFCEE_INTERFACE_HCI_ACCESS) )
     {
         return false;
     }
-#endif
 
     strncpy(verInfo, "Version info not available", verInfoSz-1);
     verInfo[verInfoSz-1] = '\0';
@@ -2170,26 +1997,24 @@ tNFA_EE_INFO *SecureElement::findEeByHandle (tNFA_HANDLE eeHandle)
 *******************************************************************************/
 tNFA_HANDLE SecureElement::getDefaultEeHandle ()
 {
-#ifdef NXP_EXT
-    // Find the first EE that is not the HCI Access i/f.
-    for (UINT8 xx = 0; xx < mActualNumEe; xx++)
-    {
-        if ((mEeInfo[xx].num_interface != 0)/* && (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS) */)
-            return (mEeInfo[xx].ee_handle);
-    }
-#else
     UINT16 overrideEeHandle = NFA_HANDLE_GROUP_EE | mActiveSeOverride;
     // Find the first EE that is not the HCI Access i/f.
     for (UINT8 xx = 0; xx < mActualNumEe; xx++)
     {
         if (mActiveSeOverride && (overrideEeHandle != mEeInfo[xx].ee_handle))
             continue; //skip all the EE's that are ignored
-        if ((mEeInfo[xx].num_interface != 0) &&
-            (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS) &&
+        if ((mEeInfo[xx].num_interface != 0)
+#ifndef GEMATO_SE_SUPPORT
+             &&
+            (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS)
+#else
+            &&
+            (mEeInfo[xx].ee_handle == EE_HANDLE_0xF3)
+#endif
+            &&
             (mEeInfo[xx].ee_status != NFC_NFCEE_STATUS_INACTIVE))
             return (mEeInfo[xx].ee_handle);
     }
-#endif
     return NFA_HANDLE_INVALID;
 }
 

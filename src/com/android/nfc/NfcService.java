@@ -814,7 +814,6 @@ public class NfcService implements DeviceHostListener {
                     return false;
                 }
             }
-
             Log.i(TAG, "Enabling NFC");
             updateState(NfcAdapter.STATE_TURNING_ON);
 
@@ -2209,7 +2208,11 @@ public class NfcService implements DeviceHostListener {
                         if (force || mNfceeRouteEnabled) {
                             Log.d(TAG, "NFC-EE OFF");
                             mNfceeRouteEnabled = false;
-                            mDeviceHost.doDeselectSecureElement(mSelectedSeId);
+                            if (mUseNxpSEPatch) {
+                                mDeviceHost.doDeselectSecureElement(mSelectedSeId);
+                            } else {
+                                mDeviceHost.doDeselectSecureElement();
+                            }
                         }
                     }
                     return;
@@ -2702,7 +2705,7 @@ public class NfcService implements DeviceHostListener {
             synchronized (NfcService.this) {
                 if (params == null || params.length != 1) {
                     // force apply current routing
-                    applyRouting(false);
+                    applyRouting(!mUseNxpSEPatch);
                     return null;
                 }
                 mScreenState = params[0].intValue();

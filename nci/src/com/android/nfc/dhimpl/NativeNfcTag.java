@@ -702,6 +702,17 @@ public class NativeNfcTag implements TagEndpoint {
                         break;
                     }
 
+                    case TagTechnology.MIFARE_CLASSIC: {
+                        byte[] actBytes = mTechActBytes[i];
+                        if ((actBytes != null) && (actBytes.length > 0)) {
+                            extras.putShort(NfcA.EXTRA_SAK, (short) (actBytes[0] & (short) 0xFF));
+                        } else {
+                            // ignore this case.
+                        }
+                        extras.putByteArray(NfcA.EXTRA_ATQA, mTechPollBytes[i]);
+                        break;
+                    }
+
                     default: {
                         // Leave the entry in the array null
                         continue;
