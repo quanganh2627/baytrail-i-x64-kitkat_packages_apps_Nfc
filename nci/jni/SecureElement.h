@@ -390,6 +390,8 @@ private:
 #else
     static const UINT8 STATIC_PIPE_0x70 = 0x70; //Broadcom's proprietary static pipe
 #endif
+#else
+    static const UINT8 STATIC_PIPE_0x70 = 0x70; //Broadcom's proprietary static pipe
 #endif
     static const UINT8 STATIC_PIPE_0x71 = 0x71; //Broadcom's proprietary static pipe
     static const UINT8 EVT_SEND_DATA = 0x10;    //see specification ETSI TS 102 622 v9.0.0 (Host Controller Interface); section 9.3.3.3
