@@ -13,7 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+/******************************************************************************
+ *
+ *  The original Work has been changed by NXP Semiconductors.
+ *
+ *  Copyright (C) 2013 NXP Semiconductors
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ ******************************************************************************/
 #include <semaphore.h>
 #include <errno.h>
 #include "OverrideLog.h"
@@ -27,6 +45,10 @@
 #include "PowerSwitch.h"
 #include "JavaClassConstants.h"
 #include "Pn544Interop.h"
+#ifdef NXP_EXT
+#include "CEFromHost.h"
+#include <cutils/properties.h>
+#endif
 
 extern "C"
 {
@@ -83,6 +105,11 @@ namespace android
     jmethodID               gCachedNfcManagerNotifySeFieldDeactivated;
     jmethodID               gCachedNfcManagerNotifySeListenActivated;
     jmethodID               gCachedNfcManagerNotifySeListenDeactivated;
+#ifdef NXP_EXT
+    jmethodID               gCachedNfcManagerNotifyCEFromHostActivated;
+    jmethodID               gCachedNfcManagerNotifyCEFromHostDeActivated;
+    const char*             gNativeNfcCEFromHostClassName             = "com/android/nfc/dhimpl/NativeNfcCEFromHost";
+#endif
     const char*             gNativeP2pDeviceClassName                 = "com/android/nfc/dhimpl/NativeP2pDevice";
     const char*             gNativeLlcpServiceSocketClassName         = "com/android/nfc/dhimpl/NativeLlcpServiceSocket";
     const char*             gNativeLlcpConnectionlessSocketClassName  = "com/android/nfc/dhimpl/NativeLlcpConnectionlessSocket";
@@ -111,7 +138,6 @@ static jmethodID            sCachedNfcManagerNotifyTargetDeselected;
 static SyncEvent            sNfaEnableEvent;  //event for NFA_Enable()
 static SyncEvent            sNfaDisableEvent;  //event for NFA_Disable()
 static SyncEvent            sNfaEnableDisablePollingEvent;  //event for NFA_EnablePolling(), NFA_DisablePolling()
-static SyncEvent            sNfaSetConfigEvent;  // event for Set_Config....
 static bool                 sIsNfaEnabled = false;
 static bool                 sDiscoveryEnabled = false;  //is polling for tag?
 static bool                 sIsDisabling = false;
@@ -121,25 +147,33 @@ static bool                 sP2pActive = false; // whether p2p was last active
 static int                  sConnlessSap = 0;
 static int                  sConnlessLinkMiu = 0;
 static bool                 sAbortConnlessWait = false;
+#ifdef NXP_EXT
+static UINT8                sIsSecElemSelected = 0;  // has NFC service selected a sec elem
+static UINT8                sIsSecElemDetected = 0;  // has NFC service selected a sec elem
+SyncEvent                   sNfaSetConfigEvent;  // event for Set_Config....
+bool isDiscoveryStarted();
+#else
 static bool                 sIsSecElemSelected = false;  //has NFC service selected a sec elem
+static SyncEvent            sNfaSetConfigEvent;  // event for Set_Config....
+#endif
 static UINT8 *              sOriginalLptdCfg = NULL;
 static UINT8                sNewLptdCfg[LPTD_PARAM_LEN];
 static UINT32               sConfigUpdated = 0;
 #define CONFIG_UPDATE_LPTD          (1 << 0)
 #define CONFIG_UPDATE_TECH_MASK     (1 << 1)
-#ifdef NXP_EXT
-#define DEFAULT_TECH_MASK           (NFA_TECHNOLOGY_MASK_A \
-                                     | NFA_TECHNOLOGY_MASK_B \
-                                     | NFA_TECHNOLOGY_MASK_F \
-                                     | NFA_TECHNOLOGY_MASK_A_ACTIVE \
-                                     | NFA_TECHNOLOGY_MASK_ISO15693 \
-                                     | NFA_TECHNOLOGY_MASK_F_ACTIVE)
-#else
 #define DEFAULT_TECH_MASK           (NFA_TECHNOLOGY_MASK_A \
                                      | NFA_TECHNOLOGY_MASK_B \
                                      | NFA_TECHNOLOGY_MASK_F \
                                      | NFA_TECHNOLOGY_MASK_ISO15693 \
                                      | NFA_TECHNOLOGY_MASK_B_PRIME \
+                                     | NFA_TECHNOLOGY_MASK_A_ACTIVE \
+                                     | NFA_TECHNOLOGY_MASK_F_ACTIVE)
+
+#ifdef NXP_EXT
+#define PN547_ES22_TECH_MASK         (NFA_TECHNOLOGY_MASK_A \
+                                     | NFA_TECHNOLOGY_MASK_B \
+                                     | NFA_TECHNOLOGY_MASK_F \
+                                     | NFA_TECHNOLOGY_MASK_ISO15693 \
                                      | NFA_TECHNOLOGY_MASK_A_ACTIVE \
                                      | NFA_TECHNOLOGY_MASK_F_ACTIVE)
 #endif
@@ -392,7 +426,7 @@ static void nfaConnectionCallback (UINT8 connEvent, tNFA_CONN_EVT_DATA* eventDat
                 ALOGD("%s: NFA_ACTIVATED_EVT; is p2p", __FUNCTION__);
                 // Disable RF field events in case of p2p
                 UINT8  nfa_enable_rf_events[] = { 0x01 };
-
+#ifndef NXP_EXT
                 ALOGD ("%s: Enabling RF field events", __FUNCTION__);
                 status = NFA_SetConfig(NCI_PARAM_ID_RF_FIELD_INFO, sizeof(nfa_enable_rf_events),
                         &nfa_enable_rf_events[0]);
@@ -401,6 +435,7 @@ static void nfaConnectionCallback (UINT8 connEvent, tNFA_CONN_EVT_DATA* eventDat
                 } else {
                     ALOGE ("%s: Failed to enable RF field events", __FUNCTION__);
                 }
+#endif
             }
         }
 
@@ -507,13 +542,21 @@ static void nfaConnectionCallback (UINT8 connEvent, tNFA_CONN_EVT_DATA* eventDat
     case NFA_CE_UICC_LISTEN_CONFIGURED_EVT :
         ALOGD("%s: NFA_CE_UICC_LISTEN_CONFIGURED_EVT : status=0x%X", __FUNCTION__, eventData->status);
         SecureElement::getInstance().connectionEventHandler (connEvent, eventData);
+#ifdef NXP_EXT
+        CEFromHost::getInstance().connectionEventHandler(connEvent,eventData);
+#endif
         break;
 
     case NFA_SET_P2P_LISTEN_TECH_EVT:
         ALOGD("%s: NFA_SET_P2P_LISTEN_TECH_EVT", __FUNCTION__);
         PeerToPeer::getInstance().connectionEventHandler (connEvent, eventData);
         break;
-
+#ifdef NXP_EXT
+    case NFA_CE_LOCAL_TAG_CONFIGURED_EVT:
+        ALOGD("%s: NFA_CE_LOCAL_TAG_CONFIGURED_EVT", __FUNCTION__);
+        CEFromHost::getInstance().connectionEventHandler(connEvent, eventData);
+        break;
+#endif
     default:
         ALOGE("%s: unknown event ????", __FUNCTION__);
         break;
@@ -585,7 +628,13 @@ static jboolean nfcManager_initNativeStruc (JNIEnv* e, jobject o)
 
     sCachedNfcManagerNotifySeEmvCardRemoval =  e->GetMethodID(cls,
             "notifySeEmvCardRemoval", "()V");
+#ifdef NXP_EXT
+    gCachedNfcManagerNotifyCEFromHostActivated = e->GetMethodID (cls,
+            "notifyCEFromHostActivated", "()V");
 
+    gCachedNfcManagerNotifyCEFromHostDeActivated = e->GetMethodID (cls,
+            "notifyCEFromHostDeActivated", "()V");
+#endif
     if (nfc_jni_cache_object(e,gNativeNfcTagClassName, &(nat->cached_NfcTag)) == -1)
     {
         ALOGE ("%s: fail cache NativeNfcTag", __FUNCTION__);
@@ -781,6 +830,11 @@ static jboolean nfcManager_doInitialize (JNIEnv* e, jobject o)
             if (sIsNfaEnabled)
             {
                 SecureElement::getInstance().initialize (getNative(e, o));
+#ifdef NXP_EXT
+                CEFromHost::getInstance().initialize(getNative(e, o));
+                sIsSecElemSelected = (SecureElement::getInstance().getActualNumEe() - 1 );
+                sIsSecElemDetected = sIsSecElemSelected;
+#endif
                 nativeNfcTag_registerNdefTypeHandler ();
                 NfcTag::getInstance().initialize (getNative(e, o));
                 PeerToPeer::getInstance().initialize ();
@@ -793,12 +847,27 @@ static jboolean nfcManager_doInitialize (JNIEnv* e, jobject o)
 
                 if ( nat )
                 {
+#ifdef NXP_EXT
+                    char nxp_chip_prop[PROPERTY_VALUE_MAX];
+                    memset(nxp_chip_prop, 0, PROPERTY_VALUE_MAX);
+                    property_get("nfc.nxp.chip", nxp_chip_prop, "");
+                    if (strncmp(nxp_chip_prop, "pn547_es2.2", 11) == 0)
+                    {
+                        nat->tech_mask = PN547_ES22_TECH_MASK;
+                        ALOGD ("%s: Applying specific polling tech mask=0x%X for PN547 ES2.2", __FUNCTION__, nat->tech_mask);
+                    }
+                    else if (GetNumValue(NAME_POLLING_TECH_MASK, &num, sizeof(num)))
+                        nat->tech_mask = num;
+                    else
+                        nat->tech_mask = DEFAULT_TECH_MASK;
+#else
                     if (GetNumValue(NAME_POLLING_TECH_MASK, &num, sizeof(num)))
                         nat->tech_mask = num;
                     else
                         nat->tech_mask = DEFAULT_TECH_MASK;
 
                     ALOGD ("%s: tag polling tech mask=0x%X", __FUNCTION__, nat->tech_mask);
+#endif
                 }
 
                 // Always restore LPTD Configuration to the stack default.
@@ -953,6 +1022,14 @@ void nfcManager_disableDiscovery (JNIEnv* e, jobject o)
     }
 
     PeerToPeer::getInstance().enableP2pListening (false);
+#ifdef NXP_EXT
+    //To support card emulation in screen off state.
+    if (SecureElement::getInstance().isBusy() == true )
+    {
+        PeerToPeer::getInstance().enableP2pListening (true);
+        startRfDiscovery (true);
+    }
+#endif
 
     //if nothing is active after this, then tell the controller to power down
     if (! PowerSwitch::getInstance ().setModeOff (PowerSwitch::DISCOVERY))
@@ -1143,7 +1220,11 @@ static jboolean nfcManager_doDeinitialize (JNIEnv* e, jobject o)
     sIsNfaEnabled = false;
     sDiscoveryEnabled = false;
     sIsDisabling = false;
+#ifdef NXP_EXT
+    sIsSecElemSelected = 0;
+#else
     sIsSecElemSelected = false;
+#endif
 
     {
         //unblock NFA_EnablePolling() and NFA_DisablePolling()
@@ -1272,7 +1353,11 @@ static jintArray nfcManager_doGetSecureElementList(JNIEnv *e, jobject o)
 ** Returns:         None
 **
 *******************************************************************************/
+#ifdef NXP_EXT
+static void nfcManager_doSelectSecureElement(JNIEnv *e, jobject o, jint seId)
+#else
 static void nfcManager_doSelectSecureElement(JNIEnv *e, jobject o)
+#endif
 {
     ALOGD ("%s: enter", __FUNCTION__);
     bool stat = true;
@@ -1284,16 +1369,27 @@ static void nfcManager_doSelectSecureElement(JNIEnv *e, jobject o)
         startRfDiscovery (false);
     }
 
+#ifdef NXP_EXT
+    if (sIsSecElemSelected >= sIsSecElemDetected)
+    {
+        ALOGD ("%s: already selected", __FUNCTION__);
+        goto TheEnd;
+    }
+    stat = SecureElement::getInstance().activate (seId);
+    if (stat)
+        SecureElement::getInstance().routeToSecureElement ();
+    sIsSecElemSelected++;
+#else
     if (sIsSecElemSelected)
     {
         ALOGD ("%s: already selected", __FUNCTION__);
         goto TheEnd;
     }
-
     stat = SecureElement::getInstance().activate (0xABCDEF);
     if (stat)
         SecureElement::getInstance().routeToSecureElement ();
     sIsSecElemSelected = true;
+#endif
 
 TheEnd:
     startRfDiscovery (true);
@@ -1315,7 +1411,12 @@ TheEnd:
 ** Returns:         None
 **
 *******************************************************************************/
+#ifdef NXP_EXT
+static void nfcManager_doDeselectSecureElement(JNIEnv *e, jobject o,  jint seId)
+#else
 static void nfcManager_doDeselectSecureElement(JNIEnv *e, jobject o)
+#endif
+
 {
     ALOGD ("%s: enter", __FUNCTION__);
     bool stat = false;
@@ -1330,7 +1431,11 @@ static void nfcManager_doDeselectSecureElement(JNIEnv *e, jobject o)
     if (PowerSwitch::getInstance ().getLevel() == PowerSwitch::LOW_POWER)
     {
         ALOGD ("%s: do not deselect while power is OFF", __FUNCTION__);
+#ifdef NXP_EXT
+        sIsSecElemSelected--;
+#else
         sIsSecElemSelected = false;
+#endif
         goto TheEnd;
     }
 
@@ -1341,12 +1446,20 @@ static void nfcManager_doDeselectSecureElement(JNIEnv *e, jobject o)
     }
 
     stat = SecureElement::getInstance().routeToDefault ();
+#ifdef NXP_EXT
+    sIsSecElemSelected--;
+#else
     sIsSecElemSelected = false;
+#endif
 
     //if controller is not routing to sec elems AND there is no pipe connected,
     //then turn off the sec elems
     if (SecureElement::getInstance().isBusy() == false)
+#ifdef NXP_EXT
+        stat = SecureElement::getInstance().deactivate (seId);
+#else
         SecureElement::getInstance().deactivate (0xABCDEF);
+#endif
 
 TheEnd:
     if (bRestartDiscovery)
@@ -1623,11 +1736,20 @@ static JNINativeMethod gMethods[] =
     {"doGetSecureElementList", "()[I",
             (void *)nfcManager_doGetSecureElementList},
 
+#ifdef NXP_EXT
+    {"doSelectSecureElement", "(I)V",
+            (void *)nfcManager_doSelectSecureElement},
+
+    {"doDeselectSecureElement", "(I)V",
+            (void *)nfcManager_doDeselectSecureElement},
+
+#else
     {"doSelectSecureElement", "()V",
             (void *)nfcManager_doSelectSecureElement},
 
     {"doDeselectSecureElement", "()V",
             (void *)nfcManager_doDeselectSecureElement},
+#endif
 
     {"doCheckLlcp", "()Z",
             (void *)nfcManager_doCheckLlcp},
@@ -1865,5 +1987,11 @@ void startStopPolling (bool isStartPolling)
     ALOGD ("%s: exit", __FUNCTION__);
 }
 
+#ifdef NXP_EXT
+bool isDiscoveryStarted()
+{
+    return sRfEnabled;
+}
+#endif
 
 } /* namespace android */

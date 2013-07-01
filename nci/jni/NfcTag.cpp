@@ -13,7 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+/******************************************************************************
+ *
+ *  The original Work has been changed by NXP Semiconductors.
+ *
+ *  Copyright (C) 2013 NXP Semiconductors
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ ******************************************************************************/
 /*
  *  Tag-reading, tag-writing operations.
  */
@@ -352,7 +370,11 @@ void NfcTag::discoverTechnologies (tNFA_ACTIVATED& activationData)
 
     case NFC_PROTOCOL_KOVIO:
         ALOGE ("%s: Kovio", fn);
+#ifdef NXP_EXT
+        mTechList [mNumTechList] = TARGET_TYPE_KOVIO;
+#else
         mNumTechList--; // no tech classes for Kovio
+#endif
         break;
 
 #ifdef NXP_EXT
@@ -773,7 +795,14 @@ void NfcTag::fillNativeNfcTagMembers3 (JNIEnv* e, jclass tag_cls, jobject tag, t
                 e->SetByteArrayRegion (pollBytes, 0, 2, (jbyte *) data);
             }
             break;
-
+#ifdef NXP_EXT
+        case NFC_DISCOVERY_TYPE_POLL_KOVIO:
+            {
+                ALOGD ("%s: tech Kovio", fn);
+                pollBytes = e->NewByteArray(0);
+            }
+            break;
+#endif
         default:
             ALOGE ("%s: tech unknown ????", fn);
             pollBytes = e->NewByteArray(0);
@@ -925,7 +954,14 @@ void NfcTag::fillNativeNfcTagMembers4 (JNIEnv* e, jclass tag_cls, jobject tag, t
                 e->SetByteArrayRegion (actBytes, 0, 2, (jbyte *) data);
             }
             break;
-
+#ifdef NXP_EXT
+        case NFC_PROTOCOL_KOVIO:
+            {
+                ALOGD ("%s: tech Kovio", fn);
+                actBytes = e->NewByteArray (0);
+            }
+            break;
+#endif
         default:
             ALOGD ("%s: tech unknown ????", fn);
             actBytes = e->NewByteArray (0);
@@ -967,7 +1003,7 @@ void NfcTag::fillNativeNfcTagMembers5 (JNIEnv* e, jclass tag_cls, jobject tag, t
         len = mTechParams [0].param.pk.uid_len;
         uid = e->NewByteArray (len);
         e->SetByteArrayRegion (uid, 0, len,
-                (jbyte*) &mTechParams [0].param.pk.uid);
+                (jbyte*) (mTechParams [0].param.pk.uid));
         break;
 
     case NFC_DISCOVERY_TYPE_POLL_A:

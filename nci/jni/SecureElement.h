@@ -13,7 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+/******************************************************************************
+ *
+ *  The original Work has been changed by NXP Semiconductors.
+ *
+ *  Copyright (C) 2013 NXP Semiconductors
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ ******************************************************************************/
 /*
  *  Communicate with secure elements that are attached to the NFC
  *  controller.
@@ -385,34 +403,16 @@ private:
     enum RouteSelection {NoRoute, DefaultRoute, SecElemRoute};
     static const int MAX_NUM_EE = 5;    //max number of EE's
 #ifdef NXP_EXT
-#ifdef GEMATO_SE_SUPPORT
     static const UINT8 STATIC_PIPE_0x70 = 0x19; //PN547 Gemalto's proprietary static pipe
+    static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x4C0;//0x401; //handle to secure element in slot 0
+    static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x402; //handle to secure element in slot 1
 #else
     static const UINT8 STATIC_PIPE_0x70 = 0x70; //Broadcom's proprietary static pipe
-#endif
-#else
-    static const UINT8 STATIC_PIPE_0x70 = 0x70; //Broadcom's proprietary static pipe
+    static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x4F3; //handle to secure element in slot 0
+    static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x4F4; //handle to secure element in slot 1
 #endif
     static const UINT8 STATIC_PIPE_0x71 = 0x71; //Broadcom's proprietary static pipe
     static const UINT8 EVT_SEND_DATA = 0x10;    //see specification ETSI TS 102 622 v9.0.0 (Host Controller Interface); section 9.3.3.3
-#ifdef NXP_EXT
-#ifdef NXP_UICC_ENABLE
-    static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x401;//0x401; //Workaround Used to enable UICC card Emulation on ES2.2
-#else
-    static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x4C0;//0x401; //handle to secure element in slot 0
-#endif
-#else
-    static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x4F3; //handle to secure element in slot 0
-#endif
-#ifdef NXP_EXT
-#ifdef NXP_UICC_ENABLE
-    static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x402; //handle to secure element in slot 1
-#else
-    static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x0F4;//0x4C0; //handle to secure element in slot 1
-#endif
-#else
-    static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x4F4; //handle to secure element in slot 1
-#endif
 
     static SecureElement sSecElem;
     static const char* APP_NAME;
@@ -628,4 +628,10 @@ private:
     **
     *******************************************************************************/
     bool encodeAid (UINT8* tlv, UINT16 tlvMaxLen, UINT16& tlvActualLen, const UINT8* aid, UINT8 aidLen);
+
+#ifdef NXP_EXT
+    jint getGenericEseId(tNFA_HANDLE handle);
+
+    tNFA_HANDLE getEseHandleFromGenericId(jint eseId);
+#endif
 };
