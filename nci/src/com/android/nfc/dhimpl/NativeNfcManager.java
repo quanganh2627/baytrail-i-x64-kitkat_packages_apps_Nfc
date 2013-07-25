@@ -42,6 +42,7 @@ import android.annotation.SdkConstant.SdkConstantType;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.nfc.ErrorCodes;
+import android.nfc.MultiSERoutingInfo;
 import android.nfc.tech.Ndef;
 import android.nfc.tech.TagTechnology;
 import android.util.Log;
@@ -158,6 +159,12 @@ public class NativeNfcManager implements DeviceHost {
 
     @Override
     public native void doDeselectSecureElement();
+
+    @Override
+    public native boolean doSetMultiSERoutingTable(MultiSERoutingInfo[] routingInfo);
+
+    @Override
+    public native boolean doSetMultiSEState(boolean state);
 
     private native NativeLlcpConnectionlessSocket doCreateLlcpConnectionlessSocket(int nSap,
             String sn);

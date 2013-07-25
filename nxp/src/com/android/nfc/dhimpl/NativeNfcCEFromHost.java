@@ -25,6 +25,8 @@ package  com.android.nfc.dhimpl;
  */
 public class NativeNfcCEFromHost {
 
+    public NativeNfcCEFromHost() { }
+
     public native boolean dosetNfcCEFromHostTypeA(byte sak, byte[] atqa, byte[] app_data);
     public native boolean dosetNfcCEFromHostTypeB(byte[] atqb, byte[] hi_layer_resp, int afi);
     public native void doresetNfcCEFromHostType();

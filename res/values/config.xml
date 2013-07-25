@@ -21,4 +21,5 @@
          enabled -->
     <bool name="nfc_on_default">true</bool>
     <bool name="use_nxp_se_patch">true</bool>
+    <bool name="nfc_nxp_fri_1_3">false</bool>
 </resources>
