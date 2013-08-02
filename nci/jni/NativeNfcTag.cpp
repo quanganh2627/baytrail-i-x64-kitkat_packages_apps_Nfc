@@ -112,7 +112,7 @@ static int          sCountTagAway = 0; //count the consecutive number of presenc
 static tNFA_STATUS  sMakeReadonlyStatus = NFA_STATUS_FAILED;
 static jboolean     sMakeReadonlyWaitingForComplete = JNI_FALSE;
 #ifdef NXP_EXT
-static int          doReconnectFlag = 0x00; /* TODO: */
+static int          doReconnectFlag = 0x00;
 #endif
 
 
@@ -962,7 +962,6 @@ static jbyteArray nativeNfcTag_doTransceive (JNIEnv *e, jobject o, jbyteArray da
             {
                 status = NFA_SendRawFrame (buf, bufLen);
             }
-            gGeneralTransceiveTimeout = gGeneralTransceiveTimeout + 500;
 #else
             tNFA_STATUS status = NFA_SendRawFrame (buf, bufLen);
 #endif
@@ -1092,7 +1091,6 @@ static jint nativeNfcTag_doGetNdefType (JNIEnv *e, jobject o, jint libnfcType, j
         ndefType = NDEF_MIFARE_CLASSIC_TAG;
         break;
 #endif
-
     case NFA_PROTOCOL_INVALID:
         ndefType = NDEF_UNKNOWN_TYPE;
         break;

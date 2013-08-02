@@ -13,7 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+/******************************************************************************
+ *
+ *  The original Work has been changed by NXP Semiconductors.
+ *
+ *  Copyright (C) 2013 NXP Semiconductors
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ ******************************************************************************/
 /*
  *  Communicate with secure elements that are attached to the NFC
  *  controller.
@@ -26,8 +44,9 @@
 #include "PowerSwitch.h"
 #include "HostAidRouter.h"
 #include "JavaClassConstants.h"
-
-
+#ifdef NXP_EXT
+#include "CEFromHost.h"
+#endif
 /*****************************************************************************
 **
 ** public variables
@@ -162,11 +181,9 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
     ALOGD ("%s: Default destination gate: 0x%X", fn, mDestinationGate);
 
     // active SE, if not set active all SEs
-#ifndef NXP_EXT
     if (GetNumValue("ACTIVE_SE", &num, sizeof(num)))
         mActiveSeOverride = num;
     ALOGD ("%s: Active SE override: 0x%X", fn, mActiveSeOverride);
-#endif
 
     if (GetNumValue("OBERTHUR_WARM_RESET_COMMAND", &num, sizeof(num)))
     {
@@ -205,30 +222,16 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
         mEeRegisterEvent.wait ();
     }
 
-#ifdef NXP_EXT
-
-    mRouteDataSet.initialize ();
-    mRouteDataSet.import (); //read XML file
-    HostAidRouter::getInstance().initialize ();
-
-    GetStrValue(NAME_AID_FOR_EMPTY_SELECT, (char*)&mAidForEmptySelect[0], sizeof(mAidForEmptySelect));
-    ALOGD ("NFCC_DEVICE_PN547C1 enabled");
-    mIsInit = true;
-    ALOGD ("%s: exit", fn);
-    return (true);
-#endif
-
     // If the controller has an HCI Network, register for that
     for (xx = 0; xx < mActualNumEe; xx++)
     {
-#ifdef GEMATO_SE_SUPPORT
-        if (mEeInfo[xx].num_interface > 0)
+#ifdef NXP_EXT
+        if ((mEeInfo[xx].num_interface > 0) && (mEeInfo[xx].ee_handle != EE_HANDLE_0xF4 ))
 #else
         if ((mEeInfo[xx].num_interface > 0) && (mEeInfo[xx].ee_interface[0] == NCI_NFCEE_INTERFACE_HCI_ACCESS) )
 #endif
         {
             ALOGD ("%s: Found HCI network, try hci register", fn);
-
             SyncEventGuard guard (mHciRegisterEvent);
 
             nfaStat = NFA_HciRegister (const_cast<char*>(APP_NAME), nfaHciCallback, TRUE);
@@ -450,9 +453,15 @@ jintArray SecureElement::getListOfEeHandles (JNIEnv* e)
         }
 
         jj = mEeInfo[ii].ee_handle & ~NFA_HANDLE_GROUP_EE;
+#ifdef NXP_EXT
+        ALOGD ("%s: Handle %u = 0x%X", fn, ii, jj);
+
+        jj = getGenericEseId(jj);
+
+        ALOGD ("%s: Generic id %u = 0x%X", fn, ii, jj);
+#endif
         e->SetIntArrayRegion (list, cnt++, 1, &jj);
     }
-    //e->DeleteLocalRef (list);
 
     ALOGD("%s: exit", fn);
     return list;
@@ -476,19 +485,23 @@ bool SecureElement::activate (jint seID)
     int numActivatedEe = 0;
 
     ALOGD ("%s: enter; seID=0x%X", fn, seID);
+#ifdef NXP_EXT
+    tNFA_HANDLE handle = getEseHandleFromGenericId(seID);
 
+    ALOGD ("%s: handle=0x%X", fn, handle);
+#endif
     if (!mIsInit)
     {
         ALOGE ("%s: not init", fn);
         return false;
     }
-
+#ifndef NXP_EXT
     if (mActiveEeHandle != NFA_HANDLE_INVALID)
     {
         ALOGD ("%s: already active", fn);
         return true;
     }
-
+#endif
     // Get Fresh EE info if needed.
     if (! getEeInfo())
     {
@@ -497,9 +510,15 @@ bool SecureElement::activate (jint seID)
     }
 
     UINT16 overrideEeHandle = 0;
-    if (mActiveSeOverride)
+    if (mActiveSeOverride) {
         overrideEeHandle = NFA_HANDLE_GROUP_EE | mActiveSeOverride;
-
+    }
+#ifdef NXP_EXT
+    else
+    {
+        overrideEeHandle = handle;
+    }
+#endif
     if (mRfFieldIsOn) {
         ALOGE("%s: RF field indication still on, resetting", fn);
         mRfFieldIsOn = false;
@@ -539,15 +558,8 @@ bool SecureElement::activate (jint seID)
     } //for
 
     mActiveEeHandle = getDefaultEeHandle();
-    if (mActiveEeHandle == NFA_HANDLE_INVALID) {
-#ifdef NXP_EXT
-        ALOGE ("%s: ee handle not found - ES 2.2 Workaround", fn);
-        mActiveEeHandle = EE_HANDLE_0xF3;
-#else
+    if (mActiveEeHandle == NFA_HANDLE_INVALID)
         ALOGE ("%s: ee handle not found", fn);
-#endif
-    }
-
     ALOGD ("%s: exit; active ee h=0x%X", fn, mActiveEeHandle);
     return mActiveEeHandle != NFA_HANDLE_INVALID;
 }
@@ -571,7 +583,11 @@ bool SecureElement::deactivate (jint seID)
     bool retval = false;
 
     ALOGD ("%s: enter; seID=0x%X, mActiveEeHandle=0x%X", fn, seID, mActiveEeHandle);
+#ifdef NXP_EXT
+    tNFA_HANDLE handle = getEseHandleFromGenericId(seID);
 
+    ALOGD ("%s: handle=0x%X", fn, handle);
+#endif
     if (!mIsInit)
     {
         ALOGE ("%s: not init", fn);
@@ -586,13 +602,51 @@ bool SecureElement::deactivate (jint seID)
         goto TheEnd;
     }
 
+#ifdef NXP_EXT
+    if (seID == NFA_HANDLE_INVALID)
+#else
     if (mActiveEeHandle == NFA_HANDLE_INVALID)
+#endif
     {
         ALOGE ("%s: invalid EE handle", fn);
         goto TheEnd;
     }
 
     mActiveEeHandle = NFA_HANDLE_INVALID;
+
+#ifdef NXP_EXT
+    // Deactivate secure element
+    for (int index=0; index < mActualNumEe; index++)
+    {
+        tNFA_EE_INFO& eeItem = mEeInfo[index];
+
+        if ( eeItem.ee_handle == handle &&
+                ((eeItem.ee_handle == EE_HANDLE_0xF3) || (eeItem.ee_handle == EE_HANDLE_0xF4)))
+        {
+            if (eeItem.ee_status == NFC_NFCEE_STATUS_INACTIVE)
+            {
+                ALOGD ("%s: h=0x%X already deactivated", fn, eeItem.ee_handle);
+                break;
+            }
+            else
+            {
+                SyncEventGuard guard (mEeSetModeEvent);
+                ALOGD ("%s: set EE mode activate; h=0x%X", fn, eeItem.ee_handle);
+                if ((nfaStat = NFA_EeModeSet (eeItem.ee_handle, NFA_EE_MD_DEACTIVATE)) == NFA_STATUS_OK)
+                {
+                    mEeSetModeEvent.wait (); // wait for NFA_EE_MODE_SET_EVT
+                    if (eeItem.ee_status == NFC_NFCEE_STATUS_INACTIVE)
+                    {
+                        ALOGE ("%s: NFA_EeModeSet success; status=0x%X", fn, nfaStat);
+                    }
+                }
+                else
+                    ALOGE ("%s: NFA_EeModeSet failed; error=0x%X", fn, nfaStat);
+            }
+        }
+    } //for
+#endif
+
     retval = true;
 
 TheEnd:
@@ -618,7 +672,7 @@ void SecureElement::notifyTransactionListenersOfAid (const UINT8* aidBuffer, UIN
     ALOGD ("%s: enter; aid len=%u", fn, aidBufferLen);
 
     if (aidBufferLen == 0)
-    	return;
+        return;
 
     jobject tlvJavaArray = NULL;
     JNIEnv* e = NULL;
@@ -2004,12 +2058,12 @@ tNFA_HANDLE SecureElement::getDefaultEeHandle ()
         if (mActiveSeOverride && (overrideEeHandle != mEeInfo[xx].ee_handle))
             continue; //skip all the EE's that are ignored
         if ((mEeInfo[xx].num_interface != 0)
-#ifndef GEMATO_SE_SUPPORT
+#ifndef NXP_EXT
              &&
             (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS)
 #else
             &&
-            (mEeInfo[xx].ee_handle == EE_HANDLE_0xF3)
+            (mEeInfo[xx].ee_handle == EE_HANDLE_0xF3 || mEeInfo[xx].ee_handle == EE_HANDLE_0xF4)
 #endif
             &&
             (mEeInfo[xx].ee_status != NFC_NFCEE_STATUS_INACTIVE))
@@ -2181,7 +2235,11 @@ bool SecureElement::routeToDefault ()
         return true;
     }
 
+#ifdef NXP_EXT
+    if (mActiveEeHandle != NFA_HANDLE_INVALID && CEFromHost::getInstance().isEnabled() != true)
+#else
     if (mActiveEeHandle != NFA_HANDLE_INVALID)
+#endif
     {
         ALOGD ("%s: stop UICC listen; EE h=0x%X", fn, mActiveEeHandle);
         SyncEventGuard guard (mUiccListenEvent);
@@ -2221,3 +2279,39 @@ bool SecureElement::isBusy ()
     return retval;
 }
 
+#ifdef NXP_EXT
+jint SecureElement::getGenericEseId(tNFA_HANDLE handle)
+{
+    jint ret = 0xFF;
+
+    //Map the actual handle to generic id
+    if(handle == (EE_HANDLE_0xF3 & ~NFA_HANDLE_GROUP_EE) ) //ESE - 0xC0
+    {
+        ret = 0x01;
+    }
+    else if(handle ==  (EE_HANDLE_0xF4 & ~NFA_HANDLE_GROUP_EE) ) //UICC - 0x02
+    {
+        ret = 0x02;
+    }
+
+    return ret;
+}
+
+tNFA_HANDLE SecureElement::getEseHandleFromGenericId(jint eseId)
+{
+    UINT16 handle = NFA_HANDLE_INVALID;
+
+
+    //Map the generic id to actual handle
+    if(eseId == 0x01) //ESE
+    {
+        handle = EE_HANDLE_0xF3; //0x4C0;
+    }
+    else if(eseId == 0x02) //UICC
+    {
+        handle = EE_HANDLE_0xF4; //0x402;
+    }
+
+    return handle;
+}
+#endif
