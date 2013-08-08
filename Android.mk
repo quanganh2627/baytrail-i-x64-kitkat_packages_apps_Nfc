@@ -16,7 +16,10 @@ LOCAL_SRC_FILES += \
 LOCAL_PACKAGE_NAME := Nfc
 LOCAL_CERTIFICATE := platform
 
-LOCAL_STATIC_JAVA_LIBRARIES := NfcLogTags
+LOCAL_STATIC_JAVA_LIBRARIES := NfcLogTags \
+                                CwsServiceMgr \
+                                CsmClient
+
 LOCAL_JAVA_LIBRARIES := org.simalliance.openmobileapi
 
 LOCAL_REQUIRED_MODULES  := libnfc_jni
@@ -42,7 +45,10 @@ LOCAL_PACKAGE_NAME := NfcNci
 LOCAL_OVERRIDES_PACKAGES := Nfc
 LOCAL_CERTIFICATE := platform
 
-LOCAL_STATIC_JAVA_LIBRARIES := NfcLogTags
+LOCAL_STATIC_JAVA_LIBRARIES := NfcLogTags \
+                                CwsServiceMgr \
+                                CsmClient
+
 LOCAL_JAVA_LIBRARIES := org.simalliance.openmobileapi
 
 LOCAL_REQUIRED_MODULES  := libnfc_nci_jni
