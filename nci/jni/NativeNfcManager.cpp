@@ -164,7 +164,8 @@ static SyncEvent            sNfaSetConfigEvent;  // event for Set_Config....
                                      | NFA_TECHNOLOGY_MASK_ISO15693 \
                                      | NFA_TECHNOLOGY_MASK_B_PRIME \
                                      | NFA_TECHNOLOGY_MASK_A_ACTIVE \
-                                     | NFA_TECHNOLOGY_MASK_F_ACTIVE)
+                                     | NFA_TECHNOLOGY_MASK_F_ACTIVE \
+                                     | NFA_TECHNOLOGY_MASK_KOVIO)
 
 #ifdef NXP_EXT
 #define PN547_ES22_TECH_MASK         (NFA_TECHNOLOGY_MASK_A \
@@ -172,8 +173,7 @@ static SyncEvent            sNfaSetConfigEvent;  // event for Set_Config....
                                      | NFA_TECHNOLOGY_MASK_F \
                                      | NFA_TECHNOLOGY_MASK_ISO15693 \
                                      | NFA_TECHNOLOGY_MASK_A_ACTIVE \
-                                     | NFA_TECHNOLOGY_MASK_F_ACTIVE \
-                                     | NFA_TECHNOLOGY_MASK_KOVIO)
+                                     | NFA_TECHNOLOGY_MASK_F_ACTIVE)
 #endif
 
 static void nfaConnectionCallback (UINT8 event, tNFA_CONN_EVT_DATA *eventData);
