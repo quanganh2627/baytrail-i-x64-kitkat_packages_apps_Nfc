@@ -30,7 +30,6 @@ extern "C" {
 #include <phNfcTypes.h>
 #include <phNfcIoctlCode.h>
 #include <phLibNfc.h>
-#include <phLibNfc_SE.h>
 #include <phDal4Nfc_messageQueueLib.h>
 #include <phFriNfc_NdefMap.h>
 #include <cutils/log.h>
@@ -110,16 +109,15 @@ extern "C" {
 /* Utility macros for logging */
 #define GET_LEVEL(status) ((status)==NFCSTATUS_SUCCESS)?ANDROID_LOG_DEBUG:ANDROID_LOG_WARN
 
-#define LOG_CALLBACK(funcName, status)  \
-            (status)==NFCSTATUS_SUCCESS ? \
-            ALOGD_IF(gEnableLogging, "Callback: %s() - status=0x%04x[%s]", \
-                     funcName, status, nfc_jni_get_status_name(status)) : \
-            ALOGW_IF(gEnableLogging, "Callback: %s() - status=0x%04x[%s]", \
-                     funcName, status, nfc_jni_get_status_name(status))
-
-#define TRACE(...) LOGD_IF(gEnableLogging, __VA_ARGS__)
-
-extern bool_t gEnableLogging;
+#if 0
+  #define LOG_CALLBACK(funcName, status)  LOG_PRI(GET_LEVEL(status), LOG_TAG, "Callback: %s() - status=0x%04x[%s]", funcName, status, nfc_jni_get_status_name(status));
+  #define TRACE(...) ALOG(LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+  #define TRACE_ENABLED 1
+#else
+  #define LOG_CALLBACK(...)
+  #define TRACE(...)
+  #define TRACE_ENABLED 0
+#endif
 
 struct nfc_jni_native_data
 {
@@ -177,9 +175,6 @@ typedef struct nfc_jni_native_monitor
 
    /* List used to track incoming socket requests (and associated sync variables) */
    LIST_HEAD(, nfc_jni_listen_data) incoming_socket_head;
-   /* List used to track server sockets and their closing status*/
-   LIST_HEAD(, nfc_jni_listen_data) server_socket_head;
-
    pthread_mutex_t incoming_socket_mutex;
    pthread_cond_t  incoming_socket_cond;
 
@@ -206,9 +201,6 @@ typedef struct nfc_jni_listen_data
    /* LLCP socket created from the connection request */
    phLibNfc_Handle pIncomingSocket;
 
-   /* Status flag for closing of LLCP server socket */
-   bool bServerSocketClosing;
-
    /* List entries */
    LIST_ENTRY(nfc_jni_listen_data) entries;
 
@@ -233,7 +225,6 @@ void nfc_cb_data_releaseAll();
 const char* nfc_jni_get_status_name(NFCSTATUS status);
 int nfc_jni_cache_object(JNIEnv *e, const char *clsname,
    jobject *cached_obj);
-void nfc_jni_delete_global_ref(JNIEnv *e, jobject o);
 struct nfc_jni_native_data* nfc_jni_get_nat(JNIEnv *e, jobject o);
 struct nfc_jni_native_data* nfc_jni_get_nat_ext(JNIEnv *e);
 nfc_jni_native_monitor_t* nfc_jni_init_monitor(void);

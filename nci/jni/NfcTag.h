@@ -206,18 +206,6 @@ public:
     *******************************************************************************/
     bool isMifareUltralight ();
 
-#ifdef NXP_EXT
-    /*******************************************************************************
-    **
-    ** Function:        isMifareDESFire
-    **
-    ** Description:     Whether the currently activated tag is Mifare Ultralight.
-    **
-    ** Returns:         True if tag is Mifare Ultralight.
-    **
-    *******************************************************************************/
-    bool isMifareDESFire ();
-#endif
 
     /*******************************************************************************
     **

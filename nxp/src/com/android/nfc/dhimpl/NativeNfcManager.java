@@ -24,8 +24,6 @@ import android.annotation.SdkConstant.SdkConstantType;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.nfc.ErrorCodes;
-import android.nfc.NfcAdapter;
-import android.nfc.NfcManager;
 import android.nfc.tech.Ndef;
 import android.nfc.tech.TagTechnology;
 import android.util.Log;
@@ -100,9 +98,7 @@ public class NativeNfcManager implements DeviceHost {
 
         // check the timestamp of the firmware file
         File firmwareFile;
-        NfcManager manager;
-        NfcAdapter adapter;
-
+        int nbRetry = 0;
         try {
             firmwareFile = new File(NFC_CONTROLLER_FIRMWARE_FILE_NAME);
         } catch(NullPointerException npe) {
@@ -120,22 +116,19 @@ public class NativeNfcManager implements DeviceHost {
             return;
         }
 
-        manager = (NfcManager) mContext.getSystemService(Context.NFC_SERVICE);
-        adapter = manager.getDefaultAdapter();
-
-        // Check for available NFC Adapter
-        if (adapter == null) {
-            Log.e(TAG,"NFC is not available");
-            return;
+        // FW download.
+        while(nbRetry < 5) {
+            Log.d(TAG,"Perform Download");
+            if(doDownload()) {
+                Log.d(TAG,"Download Success");
+                // Now that we've finished updating the firmware, save the new modtime.
+                prefs.edit().putLong(PREF_FIRMWARE_MODTIME, modtime).apply();
+                break;
+            } else {
+                Log.d(TAG,"Download Failed");
+                nbRetry++;
+            }
         }
-
-        Log.d(TAG,"Temp. enabling NFC to perform FW download");
-        adapter.enable();
-        adapter.disable();
-
-        // Now that we've scheduled firmware update, save the new modtime.
-        // Error handling (if any) will happen in lower layers.
-        prefs.edit().putLong(PREF_FIRMWARE_MODTIME, modtime).apply();
     }
 
     private native boolean doInitialize();
@@ -184,21 +177,11 @@ public class NativeNfcManager implements DeviceHost {
     public native int[] doGetSecureElementList();
 
     @Override
-    public native void doSelectSecureElement(int seID);
+    public native void doSelectSecureElement();
 
     @Override
-    public native void doDeselectSecureElement(int seID);
+    public native void doDeselectSecureElement();
 
-    @Override
-    public void doSelectSecureElement(){
-    }
-
-    @Override
-    public void doDeselectSecureElement(){
-    }
-
-    @Override
-    public native void doUiccSetSwpMode(int mode);
 
     private native NativeLlcpConnectionlessSocket doCreateLlcpConnectionlessSocket(int nSap,
             String sn);
@@ -395,23 +378,8 @@ public class NativeNfcManager implements DeviceHost {
     /**
      * Notifies transaction
      */
-    private void notifyTransactionListeners(byte[] aid, byte[] data) {
-        Log.d(TAG,"NativeNfcManager-notifyTransactionListeners");
-        mListener.onCardEmulationAidSelected(aid,data);
-    }
-
-    /**
-     * Notifies Connectivity event
-     */
-     private void notifyConnectivityListeners() {
-         mListener.onConnectivityEvent();
-     }
-
-    /**
-     * Notifies UICC reader mode event
-     */
-    private void notifyUiccReaderModeListeners(NativeNfcTag tag) {
-        mListener.onUiccReaderModeDetected(tag);
+    private void notifyTransactionListeners(byte[] aid) {
+        mListener.onCardEmulationAidSelected(aid);
     }
 
     /**

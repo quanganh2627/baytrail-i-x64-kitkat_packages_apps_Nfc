@@ -33,7 +33,7 @@ import java.io.IOException;
  */
 public final class SnepServer {
     private static final String TAG = "SnepServer";
-    private static final boolean DBG = true;
+    private static final boolean DBG = false;
     private static final int DEFAULT_MIU = 248;
     private static final int DEFAULT_RW_SIZE = 1;
 
