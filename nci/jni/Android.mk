@@ -2,6 +2,7 @@ VOB_COMPONENTS := external/libnfc-nci/src
 NFA := $(VOB_COMPONENTS)/nfa
 NFC := $(VOB_COMPONENTS)/nfc
 
+PN547_EXT_PATH := vendor/intel/hardware/nfc/pn547/extns
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 LOCAL_PRELINK_MODULE := false
@@ -10,6 +11,8 @@ ifneq ($(NCI_VERSION),)
 LOCAL_CFLAGS += -DNCI_VERSION=$(NCI_VERSION) -O0 -g
 endif
 
+LOCAL_CFLAGS += -Wall -Wextra
+
 define all-cpp-files-under
 $(patsubst ./%,%, \
   $(shell cd $(LOCAL_PATH) ; \
@@ -17,7 +20,7 @@ $(patsubst ./%,%, \
  )
 endef
 
-LOCAL_SRC_FILES:= $(call all-cpp-files-under, .)
+LOCAL_SRC_FILES += $(call all-cpp-files-under, .) $(call all-c-files-under, .)
 
 LOCAL_C_INCLUDES += \
     bionic \
@@ -26,6 +29,7 @@ LOCAL_C_INCLUDES += \
     external/libxml2/include \
     external/icu4c/common \
     frameworks/native/include \
+    libcore/include \
     $(NFA)/include \
     $(NFA)/brcm \
     $(NFC)/include \
@@ -42,8 +46,21 @@ LOCAL_SHARED_LIBRARIES := \
     libnativehelper \
     libcutils \
     libutils \
+    liblog \
     libnfc-nci \
     libstlport
+
+ifeq ($(strip $(BOARD_HAVE_NXP_PN547)), true)
+LOCAL_CFLAGS +=-DNXP_EXT
+LOCAL_C_INCLUDES += \
+    $(PN547_EXT_PATH)/inc \
+    $(PN547_EXT_PATH)/src/common \
+    $(PN547_EXT_PATH)/src/mifare \
+    $(PN547_EXT_PATH)/src
+
+LOCAL_SHARED_LIBRARIES += \
+    libnfc_nci_extns
+endif
 
 LOCAL_STATIC_LIBRARIES := libxml2
 
@@ -51,4 +68,3 @@ LOCAL_MODULE := libnfc_nci_jni
 LOCAL_MODULE_TAGS := optional
 
 include $(BUILD_SHARED_LIBRARY)
-

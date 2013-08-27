@@ -17,10 +17,12 @@
 #ifndef __COM_ANDROID_NFC_JNI_H__
 #define __COM_ANDROID_NFC_JNI_H__
 
+#undef LOG_TAG
 #define LOG_TAG "NFCJNI"
 
 #include <JNIHelp.h>
 #include <jni.h>
+#include <ScopedLocalRef.h>
 
 #include <pthread.h>
 #include <sys/queue.h>
@@ -30,6 +32,7 @@ extern "C" {
 #include <phNfcTypes.h>
 #include <phNfcIoctlCode.h>
 #include <phLibNfc.h>
+#include <phLibNfc_SE.h>
 #include <phDal4Nfc_messageQueueLib.h>
 #include <phFriNfc_NdefMap.h>
 #include <cutils/log.h>
@@ -59,10 +62,10 @@ extern "C" {
 #define PROPERTY_LLCP_WKS                 2
 #define PROPERTY_LLCP_OPT                 3
 #define PROPERTY_NFC_DISCOVERY_A          4
-#define PROPERTY_NFC_DISCOVERY_B          5  
+#define PROPERTY_NFC_DISCOVERY_B          5
 #define PROPERTY_NFC_DISCOVERY_F          6
 #define PROPERTY_NFC_DISCOVERY_15693      7
-#define PROPERTY_NFC_DISCOVERY_NCFIP      8                     
+#define PROPERTY_NFC_DISCOVERY_NCFIP      8
 
 /* Error codes */
 #define ERROR_BUFFER_TOO_SMALL            -12
@@ -103,21 +106,31 @@ extern "C" {
 
 #define SMX_SECURE_ELEMENT_ID   11259375
 
+
+/* These must match the EE_ERROR_ types in NfcService.java */
+#define EE_ERROR_IO                 -1
+#define EE_ERROR_ALREADY_OPEN       -2
+#define EE_ERROR_INIT               -3
+#define EE_ERROR_LISTEN_MODE        -4
+#define EE_ERROR_EXT_FIELD          -5
+#define EE_ERROR_NFC_DISABLED       -6
+
 /* Maximum byte length of an AID. */
 #define AID_MAXLEN                        16
 
 /* Utility macros for logging */
 #define GET_LEVEL(status) ((status)==NFCSTATUS_SUCCESS)?ANDROID_LOG_DEBUG:ANDROID_LOG_WARN
 
-#if 0
-  #define LOG_CALLBACK(funcName, status)  LOG_PRI(GET_LEVEL(status), LOG_TAG, "Callback: %s() - status=0x%04x[%s]", funcName, status, nfc_jni_get_status_name(status));
-  #define TRACE(...) ALOG(LOG_DEBUG, LOG_TAG, __VA_ARGS__)
-  #define TRACE_ENABLED 1
-#else
-  #define LOG_CALLBACK(...)
-  #define TRACE(...)
-  #define TRACE_ENABLED 0
-#endif
+#define LOG_CALLBACK(funcName, status)  \
+            (status)==NFCSTATUS_SUCCESS ? \
+            ALOGD_IF(gEnableLogging, "Callback: %s() - status=0x%04x[%s]", \
+                     funcName, status, nfc_jni_get_status_name(status)) : \
+            ALOGW_IF(gEnableLogging, "Callback: %s() - status=0x%04x[%s]", \
+                     funcName, status, nfc_jni_get_status_name(status))
+
+#define TRACE(...) LOGD_IF(gEnableLogging, __VA_ARGS__)
+
+extern bool_t gEnableLogging;
 
 struct nfc_jni_native_data
 {
@@ -140,10 +153,10 @@ struct nfc_jni_native_data
    int discovery_modes_state[DISCOVERY_MODE_TABLE_SIZE];
    phLibNfc_sADD_Cfg_t discovery_cfg;
    phLibNfc_Registry_Info_t registry_info;
-   
+
    /* Secure Element selected */
    int seId;
-   
+
    /* LLCP params */
    int lto;
    int miu;
@@ -159,7 +172,7 @@ struct nfc_jni_native_data
    /* p2p modes */
    int p2p_initiator_modes;
    int p2p_target_modes;
-   
+
 };
 
 typedef struct nfc_jni_native_monitor
@@ -175,6 +188,9 @@ typedef struct nfc_jni_native_monitor
 
    /* List used to track incoming socket requests (and associated sync variables) */
    LIST_HEAD(, nfc_jni_listen_data) incoming_socket_head;
+   /* List used to track server sockets and their closing status*/
+   LIST_HEAD(, nfc_jni_listen_data) server_socket_head;
+
    pthread_mutex_t incoming_socket_mutex;
    pthread_cond_t  incoming_socket_cond;
 
@@ -201,6 +217,9 @@ typedef struct nfc_jni_listen_data
    /* LLCP socket created from the connection request */
    phLibNfc_Handle pIncomingSocket;
 
+   /* Status flag for closing of LLCP server socket */
+   bool bServerSocketClosing;
+
    /* List entries */
    LIST_ENTRY(nfc_jni_listen_data) entries;
 
@@ -225,15 +244,17 @@ void nfc_cb_data_releaseAll();
 const char* nfc_jni_get_status_name(NFCSTATUS status);
 int nfc_jni_cache_object(JNIEnv *e, const char *clsname,
    jobject *cached_obj);
+void nfc_jni_delete_global_ref(JNIEnv *e, jobject o);
 struct nfc_jni_native_data* nfc_jni_get_nat(JNIEnv *e, jobject o);
 struct nfc_jni_native_data* nfc_jni_get_nat_ext(JNIEnv *e);
 nfc_jni_native_monitor_t* nfc_jni_init_monitor(void);
 nfc_jni_native_monitor_t* nfc_jni_get_monitor(void);
 
 int get_technology_type(phNfc_eRemDevType_t type, uint8_t sak);
-void nfc_jni_get_technology_tree(JNIEnv* e, phLibNfc_RemoteDevList_t* devList,
-                        uint8_t count, jintArray* techList, jintArray* handleList,
-                        jintArray* typeList);
+void nfc_jni_get_technology_tree(JNIEnv* e, phLibNfc_RemoteDevList_t* devList, uint8_t count,
+                        ScopedLocalRef<jintArray>* techList,
+                        ScopedLocalRef<jintArray>* handleList,
+                        ScopedLocalRef<jintArray>* typeList);
 
 /* P2P */
 phLibNfc_Handle nfc_jni_get_p2p_device_handle(JNIEnv *e, jobject o);

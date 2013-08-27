@@ -22,10 +22,13 @@ namespace android
     extern jmethodID gCachedNfcManagerNotifyTransactionListeners;
     extern jmethodID gCachedNfcManagerNotifyLlcpLinkActivation;
     extern jmethodID gCachedNfcManagerNotifyLlcpLinkDeactivated;
+    extern jmethodID gCachedNfcManagerNotifyLlcpFirstPacketReceived;
     extern jmethodID gCachedNfcManagerNotifySeFieldActivated;
     extern jmethodID gCachedNfcManagerNotifySeFieldDeactivated;
     extern jmethodID gCachedNfcManagerNotifySeListenActivated;
     extern jmethodID gCachedNfcManagerNotifySeListenDeactivated;
+    extern jmethodID gCachedNfcManagerNotifyCEFromHostActivated;
+    extern jmethodID gCachedNfcManagerNotifyCEFromHostDeActivated;
 
     extern const char* gNativeP2pDeviceClassName;
     extern const char* gNativeLlcpServiceSocketClassName;
@@ -34,4 +37,5 @@ namespace android
     extern const char* gNativeNfcTagClassName;
     extern const char* gNativeNfcManagerClassName;
     extern const char* gNativeNfcSecureElementClassName;
+    extern const char* gNativeNfcCEFromHostClassName;
 }

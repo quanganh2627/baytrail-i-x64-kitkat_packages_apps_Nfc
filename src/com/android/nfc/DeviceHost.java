@@ -13,7 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+/******************************************************************************
+ *
+ *  The original Work has been changed by NXP Semiconductors.
+ *
+ *  Copyright (C) 2013 NXP Semiconductors
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ ******************************************************************************/
 package com.android.nfc;
 
 import android.nfc.NdefMessage;
@@ -33,7 +51,14 @@ public interface DeviceHost {
         /**
          * Notifies transaction
          */
+        public void onCardEmulationAidSelected(byte[] aid, byte[] data);
+
         public void onCardEmulationAidSelected(byte[] aid);
+
+        /**
+         * Notifies connectivity event from the SE (UICC)
+         */
+        public void onConnectivityEvent();
 
         /**
          * Notifies P2P Device detected, to activate LLCP link
@@ -44,6 +69,8 @@ public interface DeviceHost {
          * Notifies P2P Device detected, to activate LLCP link
          */
         public void onLlcpLinkDeactivated(NfcDepEndpoint device);
+
+        public void onLlcpFirstPacketReceived(NfcDepEndpoint device);
 
         public void onRemoteFieldActivated();
 
@@ -64,6 +91,18 @@ public interface DeviceHost {
         public void onSeEmvCardRemoval();
 
         public void onSeMifareAccess(byte[] block);
+
+        public void onUiccReaderModeDetected(TagEndpoint tag);
+
+        /**
+         * Notifies Host Card Emulation Activated event
+         */
+        public void onCEFromHostActivatedEvent();
+
+        /**
+         * Notifies Host Card Emulation DeActivated event
+         */
+        public void onCEFromHostDeActivatedEvent();
     }
 
     public interface TagEndpoint {
@@ -193,12 +232,18 @@ public interface DeviceHost {
 
     public int[] doGetSecureElementList();
 
+    public void doSelectSecureElement(int seID);
+
+    public void doDeselectSecureElement(int seID);
+
     public void doSelectSecureElement();
 
     public void doDeselectSecureElement();
 
     public LlcpConnectionlessSocket createLlcpConnectionlessSocket(int nSap, String sn)
             throws LlcpException;
+
+    public void doUiccSetSwpMode(int mode);
 
     public LlcpServerSocket createLlcpServerSocket(int nSap, String sn, int miu,
             int rw, int linearBufferLength) throws LlcpException;

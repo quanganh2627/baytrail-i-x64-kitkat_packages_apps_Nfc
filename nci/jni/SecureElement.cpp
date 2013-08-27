@@ -13,21 +13,41 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+/******************************************************************************
+ *
+ *  The original Work has been changed by NXP Semiconductors.
+ *
+ *  Copyright (C) 2013 NXP Semiconductors
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ ******************************************************************************/
 /*
  *  Communicate with secure elements that are attached to the NFC
  *  controller.
  */
 #include <semaphore.h>
 #include <errno.h>
+#include <ScopedLocalRef.h>
 #include "OverrideLog.h"
 #include "SecureElement.h"
 #include "config.h"
 #include "PowerSwitch.h"
 #include "HostAidRouter.h"
 #include "JavaClassConstants.h"
-
-
+#ifdef NXP_EXT
+#include "CEFromHost.h"
+#endif
 /*****************************************************************************
 **
 ** public variables
@@ -40,6 +60,7 @@ bool gUseStaticPipe = false;    // if true, use gGatePipe as static pipe id.  if
 namespace android
 {
     extern void startRfDiscovery (bool isStart);
+    extern void setUiccIdleTimeout (bool enable);
 }
 
 //////////////////////////////////////////////
@@ -49,6 +70,9 @@ namespace android
 SecureElement SecureElement::sSecElem;
 const char* SecureElement::APP_NAME = "nfc_jni";
 
+#ifdef NXP_EXT
+char bcm_nfc_location[]="/etc";
+#endif
 
 /*******************************************************************************
 **
@@ -149,7 +173,6 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
 {
     static const char fn [] = "SecureElement::initialize";
     tNFA_STATUS nfaStat;
-    UINT8 xx = 0, yy = 0;
     unsigned long num = 0;
 
     ALOGD ("%s: enter", fn);
@@ -177,6 +200,8 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
     mbNewEE         = true;
     mNewPipeId      = 0;
     mNewSourceGate  = 0;
+    mRfFieldIsOn    = false;
+    mActivatedInListenMode = false;
     mCurrentRouteSelection = NoRoute;
     memset (mEeInfo, 0, sizeof(mEeInfo));
     memset (&mUiccInfo, 0, sizeof(mUiccInfo));
@@ -201,12 +226,15 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
     }
 
     // If the controller has an HCI Network, register for that
-    for (xx = 0; xx < mActualNumEe; xx++)
+    for (size_t xx = 0; xx < mActualNumEe; xx++)
     {
+#ifdef NXP_EXT
+        if ((mEeInfo[xx].num_interface > 0) && (mEeInfo[xx].ee_handle != EE_HANDLE_0xF4 ))
+#else
         if ((mEeInfo[xx].num_interface > 0) && (mEeInfo[xx].ee_interface[0] == NCI_NFCEE_INTERFACE_HCI_ACCESS) )
+#endif
         {
             ALOGD ("%s: Found HCI network, try hci register", fn);
-
             SyncEventGuard guard (mHciRegisterEvent);
 
             nfaStat = NFA_HciRegister (const_cast<char*>(APP_NAME), nfaHciCallback, TRUE);
@@ -245,7 +273,6 @@ void SecureElement::finalize ()
 {
     static const char fn [] = "SecureElement::finalize";
     ALOGD ("%s: enter", fn);
-    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
 
     NFA_EeDeregister (nfaEeCallback);
 
@@ -281,7 +308,6 @@ bool SecureElement::getEeInfo()
     static const char fn [] = "SecureElement::getEeInfo";
     ALOGD ("%s: enter; mbNewEE=%d, mActualNumEe=%d", fn, mbNewEE, mActualNumEe);
     tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
-    UINT8 xx = 0, yy = 0;
 
     // If mbNewEE is true then there is new EE info.
     if (mbNewEE)
@@ -309,7 +335,7 @@ bool SecureElement::getEeInfo()
                           fn, xx, mEeInfo[xx].ee_handle, eeStatusToString(mEeInfo[xx].ee_status), mEeInfo[xx].num_interface,
                           mEeInfo[xx].ee_interface[0], mEeInfo[xx].ee_interface[1], mEeInfo[xx].num_tlvs);
 
-                    for (yy = 0; yy < mEeInfo[xx].num_tlvs; yy++)
+                    for (size_t yy = 0; yy < mEeInfo[xx].num_tlvs; yy++)
                     {
                         ALOGD ("%s: EE[%u] TLV[%u]  Tag: 0x%02x  Len: %u  Values[]: 0x%02x  0x%02x  0x%02x ...",
                               fn, xx, yy, mEeInfo[xx].ee_tlv[yy].tag, mEeInfo[xx].ee_tlv[yy].len, mEeInfo[xx].ee_tlv[yy].info[0],
@@ -404,7 +430,6 @@ jintArray SecureElement::getListOfEeHandles (JNIEnv* e)
     ALOGD ("%s: enter", fn);
     if (mNumEePresent == 0)
         return NULL;
-    jintArray list = NULL;
 
     if (!mIsInit)
     {
@@ -416,7 +441,7 @@ jintArray SecureElement::getListOfEeHandles (JNIEnv* e)
     if (! getEeInfo())
         return (NULL);
 
-    list = e->NewIntArray (mNumEePresent); //allocate array
+    jintArray list = e->NewIntArray (mNumEePresent); //allocate array
     jint jj = 0;
     int cnt = 0;
     for (int ii = 0; ii < mActualNumEe && cnt < mNumEePresent; ii++)
@@ -428,9 +453,15 @@ jintArray SecureElement::getListOfEeHandles (JNIEnv* e)
         }
 
         jj = mEeInfo[ii].ee_handle & ~NFA_HANDLE_GROUP_EE;
+#ifdef NXP_EXT
+        ALOGD ("%s: Handle %u = 0x%X", fn, ii, jj);
+
+        jj = getGenericEseId(jj);
+
+        ALOGD ("%s: Generic id %u = 0x%X", fn, ii, jj);
+#endif
         e->SetIntArrayRegion (list, cnt++, 1, &jj);
     }
-    //e->DeleteLocalRef (list);
 
     ALOGD("%s: exit", fn);
     return list;
@@ -454,19 +485,23 @@ bool SecureElement::activate (jint seID)
     int numActivatedEe = 0;
 
     ALOGD ("%s: enter; seID=0x%X", fn, seID);
+#ifdef NXP_EXT
+    tNFA_HANDLE handle = getEseHandleFromGenericId(seID);
 
+    ALOGD ("%s: handle=0x%X", fn, handle);
+#endif
     if (!mIsInit)
     {
         ALOGE ("%s: not init", fn);
         return false;
     }
-
+#ifndef NXP_EXT
     if (mActiveEeHandle != NFA_HANDLE_INVALID)
     {
         ALOGD ("%s: already active", fn);
         return true;
     }
-
+#endif
     // Get Fresh EE info if needed.
     if (! getEeInfo())
     {
@@ -475,9 +510,15 @@ bool SecureElement::activate (jint seID)
     }
 
     UINT16 overrideEeHandle = 0;
-    if (mActiveSeOverride)
+    if (mActiveSeOverride) {
         overrideEeHandle = NFA_HANDLE_GROUP_EE | mActiveSeOverride;
-
+    }
+#ifdef NXP_EXT
+    else
+    {
+        overrideEeHandle = handle;
+    }
+#endif
     if (mRfFieldIsOn) {
         ALOGE("%s: RF field indication still on, resetting", fn);
         mRfFieldIsOn = false;
@@ -529,7 +570,7 @@ bool SecureElement::activate (jint seID)
 ** Function:        deactivate
 **
 ** Description:     Turn off the secure element.
-**                  seID: ID of secure element; 0xF3 or 0xF4.
+**                  seID: ID of secure element.
 **
 ** Returns:         True if ok.
 **
@@ -537,12 +578,15 @@ bool SecureElement::activate (jint seID)
 bool SecureElement::deactivate (jint seID)
 {
     static const char fn [] = "SecureElement::deactivate";
-    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
-    int numDeactivatedEe = 0;
     bool retval = false;
 
     ALOGD ("%s: enter; seID=0x%X, mActiveEeHandle=0x%X", fn, seID, mActiveEeHandle);
+#ifdef NXP_EXT
+    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
+    tNFA_HANDLE handle = getEseHandleFromGenericId(seID);
 
+    ALOGD ("%s: handle=0x%X", fn, handle);
+#endif
     if (!mIsInit)
     {
         ALOGE ("%s: not init", fn);
@@ -557,13 +601,51 @@ bool SecureElement::deactivate (jint seID)
         goto TheEnd;
     }
 
+#ifdef NXP_EXT
+    if (seID == NFA_HANDLE_INVALID)
+#else
     if (mActiveEeHandle == NFA_HANDLE_INVALID)
+#endif
     {
         ALOGE ("%s: invalid EE handle", fn);
         goto TheEnd;
     }
 
     mActiveEeHandle = NFA_HANDLE_INVALID;
+
+#ifdef NXP_EXT
+    // Deactivate secure element
+    for (int index=0; index < mActualNumEe; index++)
+    {
+        tNFA_EE_INFO& eeItem = mEeInfo[index];
+
+        if ( eeItem.ee_handle == handle &&
+                ((eeItem.ee_handle == EE_HANDLE_0xF3) || (eeItem.ee_handle == EE_HANDLE_0xF4)))
+        {
+            if (eeItem.ee_status == NFC_NFCEE_STATUS_INACTIVE)
+            {
+                ALOGD ("%s: h=0x%X already deactivated", fn, eeItem.ee_handle);
+                break;
+            }
+            else
+            {
+                SyncEventGuard guard (mEeSetModeEvent);
+                ALOGD ("%s: set EE mode activate; h=0x%X", fn, eeItem.ee_handle);
+                if ((nfaStat = NFA_EeModeSet (eeItem.ee_handle, NFA_EE_MD_DEACTIVATE)) == NFA_STATUS_OK)
+                {
+                    mEeSetModeEvent.wait (); // wait for NFA_EE_MODE_SET_EVT
+                    if (eeItem.ee_status == NFC_NFCEE_STATUS_INACTIVE)
+                    {
+                        ALOGE ("%s: NFA_EeModeSet success; status=0x%X", fn, nfaStat);
+                    }
+                }
+                else
+                    ALOGE ("%s: NFA_EeModeSet failed; error=0x%X", fn, nfaStat);
+            }
+        }
+    } //for
+#endif
+
     retval = true;
 
 TheEnd:
@@ -588,41 +670,37 @@ void SecureElement::notifyTransactionListenersOfAid (const UINT8* aidBuffer, UIN
     static const char fn [] = "SecureElement::notifyTransactionListenersOfAid";
     ALOGD ("%s: enter; aid len=%u", fn, aidBufferLen);
 
-    if (aidBufferLen == 0)
-    	return;
+    if (aidBufferLen == 0) {
+        return;
+    }
 
-    jobject tlvJavaArray = NULL;
     JNIEnv* e = NULL;
-    UINT8* tlv = 0;
-    const UINT16 tlvMaxLen = aidBufferLen + 10;
-    UINT16 tlvActualLen = 0;
-    bool stat = false;
-
-    mNativeData->vm->AttachCurrentThread (&e, NULL);
+    ScopedAttach attach(mNativeData->vm, &e);
     if (e == NULL)
     {
         ALOGE ("%s: jni env is null", fn);
         return;
     }
 
-    tlv = new UINT8 [tlvMaxLen];
+    const UINT16 tlvMaxLen = aidBufferLen + 10;
+    UINT8* tlv = new UINT8 [tlvMaxLen];
     if (tlv == NULL)
     {
         ALOGE ("%s: fail allocate tlv", fn);
-        goto TheEnd;
+        return;
     }
 
     memcpy (tlv, aidBuffer, aidBufferLen);
-    tlvActualLen = aidBufferLen;
+    UINT16 tlvActualLen = aidBufferLen;
 
-    tlvJavaArray = e->NewByteArray (tlvActualLen);
-    if (tlvJavaArray == NULL)
+    ScopedLocalRef<jobject> tlvJavaArray(e, e->NewByteArray(tlvActualLen));
+    if (tlvJavaArray.get() == NULL)
     {
         ALOGE ("%s: fail allocate array", fn);
         goto TheEnd;
     }
 
-    e->SetByteArrayRegion ((jbyteArray)tlvJavaArray, 0, tlvActualLen, (jbyte *)tlv);
+    e->SetByteArrayRegion ((jbyteArray)tlvJavaArray.get(), 0, tlvActualLen, (jbyte *)tlv);
     if (e->ExceptionCheck())
     {
         e->ExceptionClear();
@@ -630,7 +708,7 @@ void SecureElement::notifyTransactionListenersOfAid (const UINT8* aidBuffer, UIN
         goto TheEnd;
     }
 
-    e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifyTransactionListeners, tlvJavaArray);
+    e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifyTransactionListeners, tlvJavaArray.get());
     if (e->ExceptionCheck())
     {
         e->ExceptionClear();
@@ -639,9 +717,6 @@ void SecureElement::notifyTransactionListenersOfAid (const UINT8* aidBuffer, UIN
     }
 
 TheEnd:
-    if (tlvJavaArray)
-        e->DeleteLocalRef (tlvJavaArray);
-    mNativeData->vm->DetachCurrentThread ();
     delete [] tlv;
     ALOGD ("%s: exit", fn);
 }
@@ -698,6 +773,9 @@ bool SecureElement::connectEE ()
     // Disable RF discovery completely while the DH is connected
     android::startRfDiscovery(false);
 
+    // Disable UICC idle timeout while the DH is connected
+    android::setUiccIdleTimeout (false);
+
     mNewSourceGate = 0;
 
     if (gGatePipe == -1)
@@ -734,7 +812,11 @@ bool SecureElement::connectEE ()
     // If the .conf file had a static pipe to use, just use it.
     if (mNewPipeId != 0)
     {
+#ifdef NXP_EXT
+        UINT8 host = (mNewPipeId == STATIC_PIPE_0x70) ? 0xC0 : 0x03;
+#else
         UINT8 host = (mNewPipeId == STATIC_PIPE_0x70) ? 0x02 : 0x03;
+#endif
         UINT8 gate = (mNewPipeId == STATIC_PIPE_0x70) ? 0xF0 : 0xF1;
         nfaStat = NFA_HciAddStaticPipe(mNfaHciHandle, host, gate, mNewPipeId);
         if (nfaStat != NFA_STATUS_OK)
@@ -749,7 +831,11 @@ bool SecureElement::connectEE ()
         if ( (pEE->num_tlvs >= 1) && (pEE->ee_tlv[0].tag == NFA_EE_TAG_HCI_HOST_ID) )
             destHost = pEE->ee_tlv[0].info[0];
         else
+#ifdef NXP_EXT
+            destHost = 0xC0;
+#else
             destHost = 2;
+#endif
 
         // Get a list of existing gates and pipes
         {
@@ -878,12 +964,17 @@ bool SecureElement::disconnectEE (jint seID)
         else
             ALOGE ("%s: fail dealloc gate; error=0x%X", fn, nfaStat);
     }
+
     mIsPiping = false;
+
+    // Re-enable UICC low-power mode
+    android::setUiccIdleTimeout (true);
     // Re-enable RF discovery
     // Note that it only effactuates the current configuration,
     // so if polling/listening were configured OFF (forex because
     // the screen was off), they will stay OFF with this call.
     android::startRfDiscovery(true);
+
     return true;
 }
 
@@ -1007,11 +1098,11 @@ TheEnd:
 *******************************************************************************/
 void SecureElement::notifyListenModeState (bool isActivated) {
     static const char fn [] = "SecureElement::notifyListenMode";
-    JNIEnv *e = NULL;
 
     ALOGD ("%s: enter; listen mode active=%u", fn, isActivated);
-    mNativeData->vm->AttachCurrentThread (&e, NULL);
 
+    JNIEnv* e = NULL;
+    ScopedAttach attach(mNativeData->vm, &e);
     if (e == NULL)
     {
         ALOGE ("%s: jni env is null", fn);
@@ -1032,7 +1123,6 @@ void SecureElement::notifyListenModeState (bool isActivated) {
         ALOGE ("%s: fail notify", fn);
     }
 
-    mNativeData->vm->DetachCurrentThread ();
     ALOGD ("%s: exit", fn);
 }
 
@@ -1049,11 +1139,10 @@ void SecureElement::notifyListenModeState (bool isActivated) {
 void SecureElement::notifyRfFieldEvent (bool isActive)
 {
     static const char fn [] = "SecureElement::notifyRfFieldEvent";
-    JNIEnv *e = NULL;
-
     ALOGD ("%s: enter; is active=%u", fn, isActive);
-    mNativeData->vm->AttachCurrentThread (&e, NULL);
 
+    JNIEnv* e = NULL;
+    ScopedAttach attach(mNativeData->vm, &e);
     if (e == NULL)
     {
         ALOGE ("%s: jni env is null", fn);
@@ -1081,7 +1170,33 @@ void SecureElement::notifyRfFieldEvent (bool isActive)
         e->ExceptionClear();
         ALOGE ("%s: fail notify", fn);
     }
-    mNativeData->vm->DetachCurrentThread ();
+    ALOGD ("%s: exit", fn);
+}
+
+/*******************************************************************************
+**
+** Function:        resetRfFieldStatus
+**
+** Description:     Resets the field status.
+**                  isActive: Whether any secure element is activated.
+**
+** Returns:         None
+**
+*******************************************************************************/
+void SecureElement::resetRfFieldStatus ()
+{
+    static const char fn [] = "SecureElement::resetRfFieldStatus`";
+    ALOGD ("%s: enter;");
+
+    mMutex.lock();
+    mRfFieldIsOn = false;
+    int ret = clock_gettime (CLOCK_MONOTONIC, &mLastRfFieldToggle);
+    if (ret == -1) {
+        ALOGE("%s: clock_gettime failed", fn);
+        // There is no good choice here...
+    }
+    mMutex.unlock();
+
     ALOGD ("%s: exit", fn);
 }
 
@@ -1134,9 +1249,9 @@ bool SecureElement::getUiccId (tNFA_HANDLE eeHandle, jbyteArray& uid)
     static const char fn [] = "SecureElement::getUiccId";
     ALOGD ("%s: ee h=0x%X", fn, eeHandle);
     bool retval = false;
-    JNIEnv* e = NULL;
 
-    mNativeData->vm->AttachCurrentThread (&e, NULL);
+    JNIEnv* e = NULL;
+    ScopedAttach attach(mNativeData->vm, &e);
     if (e == NULL)
     {
         ALOGE ("%s: jni env is null", fn);
@@ -1146,8 +1261,9 @@ bool SecureElement::getUiccId (tNFA_HANDLE eeHandle, jbyteArray& uid)
     findUiccByHandle (eeHandle);
     //cannot get UID from the stack; nothing to do
 
-TheEnd:
-    mNativeData->vm->DetachCurrentThread ();
+    // TODO: uid is unused --- bug?
+
+    // TODO: retval is always false --- bug?
     ALOGD ("%s: exit; ret=%u", fn, retval);
     return retval;
 }
@@ -1169,10 +1285,9 @@ bool SecureElement::getTechnologyList (tNFA_HANDLE eeHandle, jintArray& techList
     static const char fn [] = "SecureElement::getTechnologyList";
     ALOGD ("%s: ee h=0x%X", fn, eeHandle);
     bool retval = false;
-    JNIEnv* e = NULL;
-    jint theList = 0;
 
-    mNativeData->vm->AttachCurrentThread (&e, NULL);
+    JNIEnv* e = NULL;
+    ScopedAttach attach(mNativeData->vm, &e);
     if (e == NULL)
     {
         ALOGE ("%s: jni env is null", fn);
@@ -1181,6 +1296,8 @@ bool SecureElement::getTechnologyList (tNFA_HANDLE eeHandle, jintArray& techList
 
     tNFA_EE_DISCOVER_INFO *pUICC = findUiccByHandle (eeHandle);
 
+    // TODO: theList is written but not set --- bug?
+    jint theList = 0;
     if (pUICC->la_protocol != 0)
         theList = TARGET_TYPE_ISO14443_3A;
     else if (pUICC->lb_protocol != 0)
@@ -1192,8 +1309,9 @@ bool SecureElement::getTechnologyList (tNFA_HANDLE eeHandle, jintArray& techList
     else
         theList = TARGET_TYPE_UNKNOWN;
 
-TheEnd:
-    mNativeData->vm->DetachCurrentThread ();
+    // TODO: techList is neither read nor written --- bug?
+
+    // TODO: retval is always false --- bug?
     ALOGD ("%s: exit; ret=%u", fn, retval);
     return retval;
 }
@@ -1213,7 +1331,6 @@ void SecureElement::adjustRoutes (RouteSelection selection)
 {
     static const char fn [] = "SecureElement::adjustRoutes";
     ALOGD ("%s: enter; selection=%u", fn, selection);
-    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
     RouteDataSet::Database* db = mRouteDataSet.getDatabase (RouteDataSet::DefaultRouteDatabase);
 
     if (selection == SecElemRoute)
@@ -1966,8 +2083,15 @@ tNFA_HANDLE SecureElement::getDefaultEeHandle ()
     {
         if (mActiveSeOverride && (overrideEeHandle != mEeInfo[xx].ee_handle))
             continue; //skip all the EE's that are ignored
-        if ((mEeInfo[xx].num_interface != 0) &&
-            (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS) &&
+        if ((mEeInfo[xx].num_interface != 0)
+#ifndef NXP_EXT
+             &&
+            (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS)
+#else
+            &&
+            (mEeInfo[xx].ee_handle == EE_HANDLE_0xF3 || mEeInfo[xx].ee_handle == EE_HANDLE_0xF4)
+#endif
+            &&
             (mEeInfo[xx].ee_status != NFC_NFCEE_STATUS_INACTIVE))
             return (mEeInfo[xx].ee_handle);
     }
@@ -2035,7 +2159,7 @@ const char* SecureElement::eeStatusToString (UINT8 status)
 ** Returns:         None
 **
 *******************************************************************************/
-void SecureElement::connectionEventHandler (UINT8 event, tNFA_CONN_EVT_DATA* eventData)
+void SecureElement::connectionEventHandler (UINT8 event, tNFA_CONN_EVT_DATA* /*eventData*/)
 {
     switch (event)
     {
@@ -2137,7 +2261,11 @@ bool SecureElement::routeToDefault ()
         return true;
     }
 
+#ifdef NXP_EXT
+    if (mActiveEeHandle != NFA_HANDLE_INVALID && CEFromHost::getInstance().isEnabled() != true)
+#else
     if (mActiveEeHandle != NFA_HANDLE_INVALID)
+#endif
     {
         ALOGD ("%s: stop UICC listen; EE h=0x%X", fn, mActiveEeHandle);
         SyncEventGuard guard (mUiccListenEvent);
@@ -2177,3 +2305,39 @@ bool SecureElement::isBusy ()
     return retval;
 }
 
+#ifdef NXP_EXT
+jint SecureElement::getGenericEseId(tNFA_HANDLE handle)
+{
+    jint ret = 0xFF;
+
+    //Map the actual handle to generic id
+    if(handle == (EE_HANDLE_0xF3 & ~NFA_HANDLE_GROUP_EE) ) //ESE - 0xC0
+    {
+        ret = 0x01;
+    }
+    else if(handle ==  (EE_HANDLE_0xF4 & ~NFA_HANDLE_GROUP_EE) ) //UICC - 0x02
+    {
+        ret = 0x02;
+    }
+
+    return ret;
+}
+
+tNFA_HANDLE SecureElement::getEseHandleFromGenericId(jint eseId)
+{
+    UINT16 handle = NFA_HANDLE_INVALID;
+
+
+    //Map the generic id to actual handle
+    if(eseId == 0x01) //ESE
+    {
+        handle = EE_HANDLE_0xF3; //0x4C0;
+    }
+    else if(eseId == 0x02) //UICC
+    {
+        handle = EE_HANDLE_0xF4; //0x402;
+    }
+
+    return handle;
+}
+#endif

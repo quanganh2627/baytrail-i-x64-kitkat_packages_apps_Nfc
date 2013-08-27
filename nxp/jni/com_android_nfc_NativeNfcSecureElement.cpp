@@ -15,6 +15,7 @@
  */
 
 #include <semaphore.h>
+#include <errno.h>
 
 #include "com_android_nfc.h"
 
@@ -152,12 +153,12 @@ static void com_android_nfc_jni_open_secure_element_notification_callback(void *
       TRACE("Secure Element Handle: 0x%08x", secureElementHandle);
 
       /* Set type name */      
-      jintArray techList;
+      ScopedLocalRef<jintArray> techList(e, NULL);
       nfc_jni_get_technology_tree(e, psRemoteDevList,uNofRemoteDev, &techList, NULL, NULL);
 
       // TODO: Should use the "connected" technology, for now use the first
-      if ((techList != NULL) && e->GetArrayLength(techList) > 0) {
-         e->GetIntArrayRegion(techList, 0, 1, &SecureElementTech);
+      if ((techList.get() != NULL) && e->GetArrayLength(techList.get()) > 0) {
+         e->GetIntArrayRegion(techList.get(), 0, 1, &SecureElementTech);
          TRACE("Store Secure Element Info\n");
          SecureElementInfo = psRemoteDevList->psRemoteDevInfo;
 
@@ -167,10 +168,6 @@ static void com_android_nfc_jni_open_secure_element_notification_callback(void *
          ALOGE("Discovered secure element, but could not resolve tech");
          status = NFCSTATUS_FAILED;
       }
-
-      // This thread may not return to the virtual machine for a long time
-      // so make sure to delete the local refernce to the tech list.
-      e->DeleteLocalRef(techList);
    }
 
 clean_and_return:
@@ -178,11 +175,13 @@ clean_and_return:
    sem_post(&pContextData->sem);
 }
 
+#define OPEN_SE_CONNECTION_TIMEOUT    5
 
 static jint com_android_nfc_NativeNfcSecureElement_doOpenSecureElementConnection(JNIEnv *e, jobject o)
 {
    NFCSTATUS ret;
    int semResult;
+   jint errorCode = EE_ERROR_INIT;
    
    phLibNfc_SE_List_t SE_List[PHLIBNFC_MAXNO_OF_SE];
    uint8_t i, No_SE = PHLIBNFC_MAXNO_OF_SE, SmartMX_index=0, SmartMX_detected = 0;
@@ -228,7 +227,8 @@ static jint com_android_nfc_NativeNfcSecureElement_doOpenSecureElementConnection
    /* Check if NFC device is already connected to a tag or P2P peer */
    if (device_connected_flag == 1)
    {
-       ALOGD("Unable to open SE connection, device already connected to a P2P peer or a Tag");
+       ALOGE("Unable to open SE connection, device already connected to a P2P peer or a Tag");
+       errorCode = EE_ERROR_LISTEN_MODE;
        goto clean_and_return;
    }
 
@@ -267,6 +267,7 @@ static jint com_android_nfc_NativeNfcSecureElement_doOpenSecureElementConnection
    {
       // There is an external RF field present, fail the open request
       ALOGD("Unable to open SE connection, external RF Field detected");
+      errorCode = EE_ERROR_EXT_FIELD;
       goto clean_and_return;   
    }   
 
@@ -291,6 +292,8 @@ static jint com_android_nfc_NativeNfcSecureElement_doOpenSecureElementConnection
 
       if(SmartMX_detected)
       {
+         struct timespec ts;
+
          REENTRANCE_LOCK();
          TRACE("phLibNfc_RemoteDev_NtfRegister()");
          ret = phLibNfc_RemoteDev_NtfRegister(&registry_info,
@@ -330,10 +333,20 @@ static jint com_android_nfc_NativeNfcSecureElement_doOpenSecureElementConnection
             goto clean_and_return;
          }
 
+         if (clock_gettime(CLOCK_REALTIME, &ts) == -1)
+         {
+             ALOGE("Clock get time error\n");
+             goto clean_and_return;
+         }
+         ts.tv_sec += OPEN_SE_CONNECTION_TIMEOUT;
          TRACE("Waiting for notification");
          /* Wait for callback response */
-         if(sem_wait(&cb_data_SE_Notification.sem))
+         if(sem_timedwait(&cb_data_SE_Notification.sem, &ts))
          {
+            if (ETIMEDOUT == errno)
+            {
+                sem_post(&cb_data_SE_Notification.sem);
+            }
             ALOGE("Secure Element opening error");
             goto clean_and_return;
          }
@@ -468,7 +481,7 @@ clean_and_return:
    nfc_cb_data_deinit(&cb_data_SE_Notification);
 
    CONCURRENCY_UNLOCK();
-   return 0;
+   return errorCode;
 }
 
 
@@ -730,16 +743,12 @@ static jintArray com_android_nfc_NativeNfcSecureElement_doGetTechList(JNIEnv *e,
    jintArray techList;
    TRACE("Get Secure element Type function ");
       
-   if(handle == secureElementHandle)
-   {
-      techList = e->NewIntArray(1);
-      e->SetIntArrayRegion(techList, 0, 1, &SecureElementTech);
-      return techList;
-   }
-   else
-   {
+   if (handle != secureElementHandle) {
       return NULL;
    }
+   jintArray result = e->NewIntArray(1);
+   e->SetIntArrayRegion(result, 0, 1, &SecureElementTech);
+   return result;
 }
 
 
