@@ -902,10 +902,9 @@ static jbyteArray nativeNfcTag_doTransceive (JNIEnv* e, jobject, jbyteArray data
     bool waitOk = false;
     bool isNack = false;
     jint *targetLost = NULL;
-
-#ifdef NXP_EXT
     tNFA_STATUS status;
 
+#ifdef NXP_EXT
     if (NfcTag::getInstance ().mTechLibNfcTypes[0] == NFA_PROTOCOL_MIFARE)
     {
         if( doReconnectFlag == 0)
@@ -969,10 +968,10 @@ static jbyteArray nativeNfcTag_doTransceive (JNIEnv* e, jobject, jbyteArray data
             }
             else
             {
-                tNFA_STATUS status = NFA_SendRawFrame (buf, bufLen, NFA_DM_DEFAULT_PRESENCE_CHECK_START_DELAY);
+                status = NFA_SendRawFrame (buf, bufLen, NFA_DM_DEFAULT_PRESENCE_CHECK_START_DELAY);
             }
 #else
-            tNFA_STATUS status = NFA_SendRawFrame (buf, bufLen, NFA_DM_DEFAULT_PRESENCE_CHECK_START_DELAY);
+            status = NFA_SendRawFrame (buf, bufLen, NFA_DM_DEFAULT_PRESENCE_CHECK_START_DELAY);
 #endif
             if (status != NFA_STATUS_OK)
             {
