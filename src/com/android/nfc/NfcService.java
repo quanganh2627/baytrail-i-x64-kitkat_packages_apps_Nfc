@@ -2662,7 +2662,7 @@ public class NfcService implements DeviceHostListener {
                     aidIntent.setAction(ACTION_AID_SELECTED);
                     aidIntent.putExtra(EXTRA_AID, aid);
                     if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG, "Broadcasting " + ACTION_AID_SELECTED);
-                    sendSeBroadcast(aidIntent);
+                    sendNfcEventBroadcast(aidIntent, aid);
                     break;
 
                 case MSG_CARD_EMULATION_EXT:
@@ -2923,12 +2923,15 @@ public class NfcService implements DeviceHostListener {
 
                 switch(mSelectedSeId) {
                     case SECURE_ELEMENT_UICC_ID:
+                    case UICC_ID_TYPE:
                         se = NfceeAccessControl.READER_UICC;
                         break;
                     case SECURE_ELEMENT_SMX_ID:
+                    case SMART_MX_ID_TYPE:
                         se = NfceeAccessControl.READER_ESE;
                         break;
                     default:
+                        Log.e(TAG, "Bad SE selected: " + mSelectedSeId);
                         return;
                 }
 
