@@ -29,8 +29,6 @@ import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlPullParserFactory;
 
-import org.simalliance.openmobileapi.SEService;
-
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
@@ -43,9 +41,6 @@ import android.util.Log;
 public class NfceeAccessControl {
     static final String TAG = "NfceeAccess";
     static final boolean DBG = true;
-
-    static final public String READER_UICC = "SIM - UICC";
-    static final public String READER_ESE  = "eSE - SmartMX";
 
     public static final String NFCEE_ACCESS_PATH = "/etc/nfcee_access.xml";
 
@@ -67,18 +62,11 @@ public class NfceeAccessControl {
     final Context mContext;
     final boolean mDebugPrintSignature;
 
-    /**
-     * Reference to the SmartCard Service used to retreive NFC access rules for apps
-     */
-    SEService mSeService;
-
     NfceeAccessControl(Context context) {
         mContext = context;
         mNfceeAccess = new HashMap<Signature, String[]>();
         mUidCache = new HashMap<Integer, Boolean>();
         mDebugPrintSignature = parseNfceeAccess();
-
-        connectToSeService(context);
     }
 
     /**
@@ -129,38 +117,10 @@ public class NfceeAccessControl {
         }
     }
 
-    /**
-     * Check for a set of packages and a given aid whether they may receive NFC event.
-     */
-    public boolean[] checkForNfcEvent(String se, String[] packages, byte[] aid) {
-        synchronized (this) {
-            if(mSeService == null)
-                throw new RuntimeException("Cannot check for NFC event: SEService is not available");
-
-            return mSeService.isNFCEventAllowed(se, aid, packages);
-        }
-    }
-
     public void invalidateCache() {
         synchronized (this) {
             mUidCache.clear();
         }
-    }
-
-    private void connectToSeService(Context context) {
-        try {
-	    SEService seService = new SEService(context, new SEService.CallBack() {
-		@Override
-		public void serviceConnected(SEService seService) {
-                    synchronized(NfceeAccessControl.this) {
-		        mSeService = seService;
-                        Log.i(TAG, "Successfully connected to the SmartCard Service!");
-                    }
-		}
-	    });
-	} catch (SecurityException e) {
-	    Log.e(TAG, "Cannot connect to SmartCard Service: " + e);
-	}
     }
 
     /**

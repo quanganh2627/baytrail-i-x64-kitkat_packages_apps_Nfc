@@ -245,6 +245,9 @@ public class NfcService implements DeviceHostListener {
     public static final String ACTION_SE_LISTEN_DEACTIVATED =
             "com.android.nfc_extras.action.SE_LISTEN_DEACTIVATED";
 
+    static final public String SMARTCARD_READER_UICC = "SIM - UICC";
+    static final public String SMARTCARD_READER_ESE  = "eSE - SmartMX";
+
     // Secure element
     // SE modes - should be mapped with enum definitions in libnfc
     private static final int SE_ACTIVE_MODE_WIRED = 0;
@@ -327,7 +330,7 @@ public class NfcService implements DeviceHostListener {
     boolean mIsAirplaneSensitive;
     boolean mIsAirplaneToggleable;
     boolean mIsDebugBuild;
-
+    SmartcardProxy mSmartcardProxy;
     NfceeAccessControl mNfceeAccessControl;
     NfcCEFromHostService mCEFromHostService;
 
@@ -513,6 +516,7 @@ public class NfcService implements DeviceHostListener {
         mEeRoutingState = ROUTE_OFF;
 
         mNfceeAccessControl = new NfceeAccessControl(mContext);
+        mSmartcardProxy = new SmartcardProxy(mContext);
 
         mNfcOnDefault = mContext.getResources().getBoolean(R.bool.nfc_on_default);
         mUseNxpSEPatch = mContext.getResources().getBoolean(R.bool.use_nxp_se_patch);
@@ -2902,68 +2906,72 @@ public class NfcService implements DeviceHostListener {
         private void sendNfcEventBroadcast(Intent intent, byte[] aid) {
             Log.i(TAG, "Send NFC event: " + intent);
 
-            // Resume app switches so the receivers can start activites without delay
-            mNfcDispatcher.resumeAppSwitches();
+            if(!mSmartcardProxy.isSmartcardServiceAvailable()) {
+                sendSeBroadcast(intent);
+            } else {
+                // Resume app switches so the receivers can start activites without delay
+                mNfcDispatcher.resumeAppSwitches();
 
-            // Add additional flag to the intent
-            intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
+                // Add additional flag to the intent
+                intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
 
-            // Retreive the list of packages which registered themselves
-            // to receive this intent.
-            PackageManager pm = mContext.getPackageManager();
-            List<ResolveInfo> list =
-                    pm.queryBroadcastReceivers(intent, PackageManager.MATCH_DEFAULT_ONLY);
+                // Retreive the list of packages which registered themselves
+                // to receive this intent.
+                PackageManager pm = mContext.getPackageManager();
+                List<ResolveInfo> list =
+                        pm.queryBroadcastReceivers(intent, PackageManager.MATCH_DEFAULT_ONLY);
 
-            if (list.size() == 0) {
-                Log.i(TAG, "NO application to handle this NFC event");
-            }
-            else {
-                // Select in which Se we need to retreive the rules
-                String se = null;
-
-                switch(mSelectedSeId) {
-                    case SECURE_ELEMENT_UICC_ID:
-                    case UICC_ID_TYPE:
-                        se = NfceeAccessControl.READER_UICC;
-                        break;
-                    case SECURE_ELEMENT_SMX_ID:
-                    case SMART_MX_ID_TYPE:
-                        se = NfceeAccessControl.READER_ESE;
-                        break;
-                    default:
-                        Log.e(TAG, "Bad SE selected: " + mSelectedSeId);
-                        return;
+                if (list.size() == 0) {
+                    Log.i(TAG, "NO application to handle this NFC event");
                 }
+                else {
+                    // Select in which Se we need to retreive the rules
+                    String se = null;
 
-                // Build the list of packages interrested in receiving this intent
-                String[] packages = new String[list.size()];
+                    switch(mSelectedSeId) {
+                        case SECURE_ELEMENT_UICC_ID:
+                        case UICC_ID_TYPE:
+                            se = SMARTCARD_READER_UICC;
+                            break;
+                        case SECURE_ELEMENT_SMX_ID:
+                        case SMART_MX_ID_TYPE:
+                            se = SMARTCARD_READER_ESE;
+                            break;
+                        default:
+                            Log.e(TAG, "Bad SE selected: " + mSelectedSeId);
+                            return;
+                    }
 
-                for (int i = 0; i < list.size(); i++) {
-                    ResolveInfo resolveInfo = list.get(i);
-                    packages[i] = resolveInfo.activityInfo.applicationInfo.packageName;
-                }
+                    // Build the list of packages interrested in receiving this intent
+                    String[] packages = new String[list.size()];
 
-                try {
-                    // Get access rigths for all the packages of the list
-                    boolean[] access = mNfceeAccessControl.checkForNfcEvent(se, packages, aid);
+                    for (int i = 0; i < list.size(); i++) {
+                        ResolveInfo resolveInfo = list.get(i);
+                        packages[i] = resolveInfo.activityInfo.applicationInfo.packageName;
+                    }
 
-                    // Send the intent only to the packages which have been authorized
-                    for(int i = 0; i < packages.length; i++) {
-                        if(access[i]) {
-                            Log.i(TAG, "Send NFC event to: " + packages[i]);
-                            intent.setPackage(packages[i]);
-                            mContext.sendBroadcast(intent);
-                        }
-                        else {
-                            Log.i(TAG, "Permission denied, NFC event is NOT sent to: " + packages[i]);
+                    try {
+                        // Get access rigths for all the packages of the list
+                        boolean[] access = mSmartcardProxy.checkForNfcEvent(se, packages, aid);
+
+                        // Send the intent only to the packages which have been authorized
+                        for(int i = 0; i < packages.length; i++) {
+                            if(access[i]) {
+                                Log.i(TAG, "Send NFC event to: " + packages[i]);
+                                intent.setPackage(packages[i]);
+                                mContext.sendBroadcast(intent);
+                            }
+                            else {
+                                Log.i(TAG, "Permission denied, NFC event is NOT sent to: " + packages[i]);
+                            }
                         }
                     }
-                }
-                catch(SecurityException e) {
-                   Log.e(TAG, "Got SecurityException while trying to send NFC event: " + e);
-                }
-                catch(RuntimeException e) {
-                   Log.e(TAG, "Got RuntimeException while trying to send NFC event: " + e);
+                    catch(SecurityException e) {
+                        Log.e(TAG, "Got SecurityException while trying to send NFC event: " + e);
+                    }
+                    catch(RuntimeException e) {
+                       Log.e(TAG, "Got RuntimeException while trying to send NFC event: " + e);
+                    }
                 }
             }
         }
