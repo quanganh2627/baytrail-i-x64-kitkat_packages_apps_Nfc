@@ -107,6 +107,10 @@ import java.util.TimerTask;
 import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.telephony.IccCardConstants;
 
+import com.intel.cws.cwsservicemanager.CsmException;
+import com.intel.cws.cwsservicemanagerclient.CsmClient;
+import com.intel.cws.cwsservicemanagerclient.CsmEfBootstrap;
+
 public class NfcService implements DeviceHostListener {
     private static final String ACTION_MASTER_CLEAR_NOTIFICATION = "android.intent.action.MASTER_CLEAR_NOTIFICATION";
 
@@ -323,6 +327,7 @@ public class NfcService implements DeviceHostListener {
     boolean mIsAirplaneSensitive;
     boolean mIsAirplaneToggleable;
     boolean mIsDebugBuild;
+
     NfceeAccessControl mNfceeAccessControl;
     NfcCEFromHostService mCEFromHostService;
 
@@ -340,6 +345,10 @@ public class NfcService implements DeviceHostListener {
     public static void enforceAdminPerm(Context context) {
         context.enforceCallingOrSelfPermission(ADMIN_PERM, ADMIN_PERM_ERROR);
     }
+
+    private CsmClientNfc mCsmClient;
+
+    private static final int MODEM_WAIT_TIMEOUT = 60000;
 
     public void enforceNfceeAdminPerm(String pkg) {
         if (pkg == null) {
@@ -522,6 +531,12 @@ public class NfcService implements DeviceHostListener {
         mIsNdefPushEnabled = mPrefs.getBoolean(PREF_NDEF_PUSH_ON, NDEF_PUSH_ON_DEFAULT);
 
         mIsDebugBuild = "userdebug".equals(Build.TYPE) || "eng".equals(Build.TYPE);
+
+        try {
+            mCsmClient = new CsmClientNfc(mContext);
+        } catch (CsmException e) {
+            Log.d(TAG, "Unable to create CsmClientNfc", e);
+        }
 
         mPowerManager = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
 
@@ -879,7 +894,33 @@ public class NfcService implements DeviceHostListener {
             if (mState == NfcAdapter.STATE_ON) {
                 return true;
             }
+
+            try {
+                if (null != mCsmClient) {
+                    Log.d(TAG, "Waiting on modem up");
+                    mCsmClient.startSync(MODEM_WAIT_TIMEOUT);
+                } else {
+                    Log.e(TAG, "CsmClient is not available. Cannot enable NFC");
+                    return false;
+                }
+            } catch (CsmException e) {
+                switch (e.getCsmCause()) {
+                    case CsmException.CAUSE_MODEM_LOCK_FAILURE:
+                        Log.e(TAG, "Lock failure: "+ e.getMessage() +". Cannot enable NFC.");
+                        return false;
+                    case CsmException.CAUSE_MODEM_DEAD:
+                        Log.e(TAG, "Modem dead. Cannot enable NFC");
+                        return false;
+                    case CsmException.CAUSE_NO_MODEM:
+                        Log.e(TAG, "There's no modem on the board, skipping.");
+                        break;
+                    default:
+                        Log.e(TAG, "Unknown issue. Cannot enable NFC");
+                        return false;
+                }
+            }
             Log.i(TAG, "Enabling NFC");
+
             updateState(NfcAdapter.STATE_TURNING_ON);
 
             WatchDogThread watchDog = new WatchDogThread("enableInternal", INIT_WATCHDOG_MS);
@@ -990,6 +1031,12 @@ public class NfcService implements DeviceHostListener {
 
             releaseSoundPool();
 
+            try {
+                mCsmClient.stop(CsmClient.CSM_CLIENT_STOP_UNBIND);
+            } catch (CsmException e) {
+                Log.e(TAG, e.getMessage());
+            }
+
             return result;
         }
 
@@ -1096,6 +1143,30 @@ public class NfcService implements DeviceHostListener {
         }
     }
 
+    private class CsmClientNfc extends CsmClient {
+        public CsmClientNfc(Context context) throws CsmException {
+            super(context, CsmClientNfc.CSM_ID_NFC, CsmClientNfc.CSM_CLIENT_BIND);
+        }
+
+        @Override
+        public void csmClientModemUnavailable() {
+            super.csmClientModemUnavailable();
+            switch (mState) {
+                case NfcAdapter.STATE_OFF:
+                    this.stop();
+                    break;
+                case NfcAdapter.STATE_ON:
+                case NfcAdapter.STATE_TURNING_ON:
+                    new EnableDisableTask().execute(TASK_DISABLE);
+                    new EnableDisableTask().execute(TASK_ENABLE);
+                    break;
+                case NfcAdapter.STATE_TURNING_OFF:
+                default:
+                    break;
+            }
+        }
+
+    }
 
     final class NfcAdapterService extends INfcAdapter.Stub {
         @Override
@@ -2591,7 +2662,7 @@ public class NfcService implements DeviceHostListener {
                     aidIntent.setAction(ACTION_AID_SELECTED);
                     aidIntent.putExtra(EXTRA_AID, aid);
                     if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG, "Broadcasting " + ACTION_AID_SELECTED);
-                    sendSeBroadcast(aidIntent);
+                    sendNfcEventBroadcast(aidIntent, aid);
                     break;
 
                 case MSG_CARD_EMULATION_EXT:
@@ -2852,12 +2923,15 @@ public class NfcService implements DeviceHostListener {
 
                 switch(mSelectedSeId) {
                     case SECURE_ELEMENT_UICC_ID:
+                    case UICC_ID_TYPE:
                         se = NfceeAccessControl.READER_UICC;
                         break;
                     case SECURE_ELEMENT_SMX_ID:
+                    case SMART_MX_ID_TYPE:
                         se = NfceeAccessControl.READER_ESE;
                         break;
                     default:
+                        Log.e(TAG, "Bad SE selected: " + mSelectedSeId);
                         return;
                 }
 
