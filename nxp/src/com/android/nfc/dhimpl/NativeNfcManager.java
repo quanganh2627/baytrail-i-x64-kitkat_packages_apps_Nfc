@@ -206,6 +206,24 @@ public class NativeNfcManager implements DeviceHost {
     public native boolean doSetMultiSEState(boolean state);
 
     @Override
+    public native int getChipVer();
+
+    @Override
+    public native int JCOSDownload();
+
+    @Override
+    public native int GetDefaultSE();
+
+    @Override
+    public native int[] getSecureElementTechList();
+
+    @Override
+    public native byte[] getSecureElementUid();
+
+    @Override
+    public native int setEmvCoPollProfile(boolean enable, int route);
+
+    @Override
     public native void doUiccSetSwpMode(int mode);
 
     private native NativeLlcpConnectionlessSocket doCreateLlcpConnectionlessSocket(int nSap,

@@ -56,6 +56,7 @@ LOCAL_C_INCLUDES += \
     $(PN547_EXT_PATH)/inc \
     $(PN547_EXT_PATH)/src/common \
     $(PN547_EXT_PATH)/src/mifare \
+    $(PN547_EXT_PATH)/src/utils \
     $(PN547_EXT_PATH)/src
 
 LOCAL_SHARED_LIBRARIES += \

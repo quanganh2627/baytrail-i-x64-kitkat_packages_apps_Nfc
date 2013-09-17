@@ -111,7 +111,11 @@
 #define NFCSTATUS_FAILED (0x00FF)
 
 //default general trasceive timeout in millisecond
+#ifdef NXP_EXT
+#define DEFAULT_GENERAL_TRANS_TIMEOUT  8000
+#else
 #define DEFAULT_GENERAL_TRANS_TIMEOUT  1000
+#endif
 
 struct nfc_jni_native_data
 {

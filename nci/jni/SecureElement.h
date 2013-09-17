@@ -200,6 +200,29 @@ public:
     *******************************************************************************/
     void notifyRfFieldEvent (bool isActive);
 
+#ifdef NXP_EXT
+    /*******************************************************************************
+    **
+    ** Function:        notifyEEReaderEvent
+    **
+    ** Description:     Notify the NFC service about Reader over SWP events from the stack.
+    **
+    ** Returns:         None
+    **
+    *******************************************************************************/
+    void notifyEEReaderEvent (int evt, int data);
+
+    /*******************************************************************************
+    **
+    ** Function:        handleEEReaderEvent
+    **
+    ** Description:     Handle the Reader over SWP events from the stack.
+    **
+    ** Returns:         None
+    **
+    *******************************************************************************/
+    void handleEEReaderEvent (int evt, int data, tNFA_HANDLE src);
+#endif
 
     /*******************************************************************************
     **
@@ -347,6 +370,9 @@ public:
     *******************************************************************************/
     bool routeToDefault ();
 
+#ifdef NXP_EXT
+    bool SecEle_Modeset(UINT8 type);
+#endif
 
     /*******************************************************************************
     **
@@ -408,7 +434,11 @@ public:
     **
     *******************************************************************************/
     bool isRfFieldOn();
-
+#ifdef NXP_EXT
+    tNFA_HANDLE getEseHandleFromGenericId(jint eseId);
+    SyncEvent       mRoutingEvent;
+    SyncEvent       mAidAddRemoveEvent;
+#endif
 private:
     static const unsigned int MAX_RESPONSE_SIZE = 1024;
     enum RouteSelection {NoRoute, DefaultRoute, SecElemRoute};
@@ -456,10 +486,14 @@ private:
     SyncEvent       mPipeOpenedEvent;
     SyncEvent       mAllocateGateEvent;
     SyncEvent       mDeallocateGateEvent;
+#ifdef NXP_EXT
+    SyncEvent       mDiscMapEvent;
+#else
     SyncEvent       mRoutingEvent;
+    SyncEvent       mAidAddRemoveEvent;
+#endif
     SyncEvent       mUiccInfoEvent;
     SyncEvent       mUiccListenEvent;
-    SyncEvent       mAidAddRemoveEvent;
     SyncEvent       mTransceiveEvent;
     SyncEvent       mVerInfoEvent;
     SyncEvent       mRegistryEvent;
@@ -643,6 +677,6 @@ private:
 #ifdef NXP_EXT
     jint getGenericEseId(tNFA_HANDLE handle);
 
-    tNFA_HANDLE getEseHandleFromGenericId(jint eseId);
+    static void discovery_map_cb (tNFC_DISCOVER_EVT event, tNFC_DISCOVER *p_data);
 #endif
 };

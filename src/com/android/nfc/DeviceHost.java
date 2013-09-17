@@ -104,6 +104,16 @@ public interface DeviceHost {
          * Notifies Host Card Emulation DeActivated event
          */
         public void onCEFromHostDeActivatedEvent();
+
+        /**
+         * Notifies SWP Reader Events.
+         */
+        public void onSWPReaderRequestedEvent(boolean istechA, boolean istechB);
+
+        public void onSWPReaderActivatedEvent();
+
+        public void onSWPReaderDeActivatedEvent();
+
     }
 
     public interface TagEndpoint {
@@ -235,6 +245,14 @@ public interface DeviceHost {
 
     public void doSelectSecureElement(int seID);
 
+    public int GetDefaultSE();
+
+    public int[] getSecureElementTechList();
+
+    public byte[] getSecureElementUid();
+
+    public int setEmvCoPollProfile(boolean enable, int route);
+
     public void doDeselectSecureElement(int seID);
 
     public void doSelectSecureElement();
@@ -283,6 +301,10 @@ public interface DeviceHost {
     int getDefaultLlcpRwSize();
 
     String dump();
+
+    int getChipVer();
+
+    int JCOSDownload();
 
     public boolean doSetMultiSERoutingTable(MultiSERoutingInfo[] routingInfo);
 

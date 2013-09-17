@@ -29,7 +29,11 @@ namespace android
     extern jmethodID gCachedNfcManagerNotifySeListenDeactivated;
     extern jmethodID gCachedNfcManagerNotifyCEFromHostActivated;
     extern jmethodID gCachedNfcManagerNotifyCEFromHostDeActivated;
-
+#ifdef NXP_EXT
+    extern jmethodID gCachedNfcManagerNotifySWPReaderRequested;
+    extern jmethodID gCachedNfcManagerNotifySWPReaderActivated;
+    extern jmethodID gCachedNfcManagerNotifySWPReaderDeActivated;
+#endif
     extern const char* gNativeP2pDeviceClassName;
     extern const char* gNativeLlcpServiceSocketClassName;
     extern const char* gNativeLlcpConnectionlessSocketClassName;

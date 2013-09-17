@@ -1042,6 +1042,11 @@ static jbyteArray nativeNfcTag_doTransceive (JNIEnv* e, jobject, jbyteArray data
     } while (0);
 
     sWaitingForTransceive = false;
+
+#ifdef NXP_EXT
+    e->ReleaseByteArrayElements (data, (jbyte *) buf, JNI_ABORT);
+#endif
+
     if (targetLost)
         e->ReleaseIntArrayElements (statusTargetLost, targetLost, 0);
 
@@ -1212,36 +1217,29 @@ static jint nativeNfcTag_doCheckNdef (JNIEnv* e, jobject, jintArray ndefInfo)
     jint* ndef = NULL;
 
     ALOGD ("%s: enter", __FUNCTION__);
+
+
+    // special case for Kovio
+    if (NfcTag::getInstance ().mTechList [0] == TARGET_TYPE_KOVIO_BARCODE)
+    {
+        ALOGD ("%s: Kovio tag, no NDEF", __FUNCTION__);
+        ndef = e->GetIntArrayElements (ndefInfo, 0);
+        ndef[0] = 0;
+        ndef[1] = NDEF_MODE_READ_ONLY;
+        e->ReleaseIntArrayElements (ndefInfo, ndef, 0);
+        return NFA_STATUS_FAILED;
+    }
+
 #ifdef NXP_EXT
     if (NfcTag::getInstance ().mTechLibNfcTypes[0] == NFA_PROTOCOL_MIFARE)
     {
         int retCode = NFCSTATUS_SUCCESS;
         retCode = nativeNfcTag_doReconnect (e, o);
     }
+
     doReconnectFlag = 0;
 #endif
 
-    // special case for Kovio
-    if (NfcTag::getInstance ().mTechList [0] == TARGET_TYPE_KOVIO_BARCODE)
-    {
-        ALOGD ("%s: Kovio tag, no NDEF", __FUNCTION__);
-        ndef = e->GetIntArrayElements (ndefInfo, 0);
-        ndef[0] = 0;
-        ndef[1] = NDEF_MODE_READ_ONLY;
-        e->ReleaseIntArrayElements (ndefInfo, ndef, 0);
-        return NFA_STATUS_FAILED;
-    }
-
-    // special case for Kovio
-    if (NfcTag::getInstance ().mTechList [0] == TARGET_TYPE_KOVIO_BARCODE)
-    {
-        ALOGD ("%s: Kovio tag, no NDEF", __FUNCTION__);
-        ndef = e->GetIntArrayElements (ndefInfo, 0);
-        ndef[0] = 0;
-        ndef[1] = NDEF_MODE_READ_ONLY;
-        e->ReleaseIntArrayElements (ndefInfo, ndef, 0);
-        return NFA_STATUS_FAILED;
-    }
 
     /* Create the write semaphore */
     if (sem_init (&sCheckNdefSem, 0, 0) == -1)
