@@ -277,8 +277,10 @@ public class NfcCefhAccessControl {
         for (Signature s : mNfcCefhAccess.keySet()) {
             pw.printf("\t%s [", s.toCharsString());
             String[] ps = mNfcCefhAccess.get(s);
-            for (String p : ps) {
-                pw.printf("%s, ", p);
+            if (ps != null) {
+                for (String p : ps) {
+                    pw.printf("%s, ", p);
+                }
             }
             pw.println("]");
         }

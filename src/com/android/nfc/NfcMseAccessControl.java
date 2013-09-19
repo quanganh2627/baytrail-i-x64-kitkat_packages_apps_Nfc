@@ -274,8 +274,10 @@ public class NfcMseAccessControl {
         for (Signature s : mNfcMseAccess.keySet()) {
             pw.printf("\t%s [", s.toCharsString());
             String[] ps = mNfcMseAccess.get(s);
-            for (String p : ps) {
-                pw.printf("%s, ", p);
+            if (ps != null) {
+                for (String p : ps) {
+                    pw.printf("%s, ", p);
+                }
             }
             pw.println("]");
         }
