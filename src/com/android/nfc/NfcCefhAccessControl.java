@@ -16,6 +16,19 @@
 
 package com.android.nfc;
 
+import android.content.Context;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
+import android.content.pm.Signature;
+import android.os.Environment;
+import android.util.Log;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+import org.xmlpull.v1.XmlPullParserFactory;
+
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
@@ -25,56 +38,45 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlPullParserFactory;
-
-import android.content.Context;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.Signature;
-import android.content.pm.PackageManager.NameNotFoundException;
-import android.os.Environment;
-import android.util.Log;
-
-public class NfceeAccessControl {
-    static final String TAG = "NfceeAccess";
+public class NfcCefhAccessControl {
+    static final String TAG = "NfcCefhAccess";
     static final boolean DBG = true;
-
-    public static final String NFCEE_ACCESS_PATH = "/etc/nfcee_access.xml";
-
-    /**
-     * Map of signatures to valid packages names, as read from nfcee_access.xml.
-     * An empty list of package names indicates that any package
-     * with this signature is allowed.
-     */
-    final HashMap<Signature, String[]> mNfceeAccess;  // contents final after onCreate()
+    public static final String NFCCEFH_ACCESS_PATH = "/etc/nfccefh_access.xml";
 
     /**
-     * Map from UID to NFCEE access, used as a cache.
-     * Note: if a UID contains multiple packages they must all be
-     * signed with the same certificate so in effect UID == certificate
-     * used to sign the package.
+     * Map of signatures to valid packages names, as read from nfccefh_access.xml. An empty list of
+     * package names indicates that any package with this signature is allowed.
      */
-    final HashMap<Integer, Boolean> mUidCache;  // contents guarded by this
+    final private HashMap<Signature, String[]> mNfcCefhAccess; // contents final
+                                                               // after
+                                                               // onCreate()
+
+    /**
+     * Map from UID to NFCCEFH access, used as a cache. Note: if a UID contains multiple packages
+     * they must all be signed with the same certificate so in effect UID == certificate used to
+     * sign the package.
+     */
+    final HashMap<Integer, Boolean> mUidCache; // contents guarded by this
 
     final Context mContext;
     final boolean mDebugPrintSignature;
 
-    NfceeAccessControl(Context context) {
+    NfcCefhAccessControl(Context context) {
         mContext = context;
-        mNfceeAccess = new HashMap<Signature, String[]>();
+        mNfcCefhAccess = new HashMap<Signature, String[]>();
         mUidCache = new HashMap<Integer, Boolean>();
-        mDebugPrintSignature = parseNfceeAccess();
+        mDebugPrintSignature = parseNfcCefhAccess();
     }
 
     /**
-     * Check if the {uid, pkg} combination may use NFCEE.
-     * Also verify with package manager that this {uid, pkg} combination
-     * is valid if it is not cached.
+     * Check if the {uid, pkg} combination may use NFCCEFH. Also verify with package manager that
+     * this {uid, pkg} combination is valid if it is not cached.
      */
     public boolean check(int uid, String pkg) {
+        if (DBG) {
+            Log.d(TAG, "check : " + pkg + " UID " + uid);
+        }
+
         synchronized (this) {
             Boolean cached = mUidCache.get(uid);
             if (cached != null) {
@@ -89,7 +91,7 @@ public class NfceeAccessControl {
             for (String uidPkg : pkgs) {
                 if (uidPkg.equals(pkg)) {
                     // Ensure the package has access permissions
-                    if (checkPackageNfceeAccess(pkg)) {
+                    if (checkPackageNfcCefhAccess(pkg)) {
                         access = true;
                     }
                     break;
@@ -102,15 +104,14 @@ public class NfceeAccessControl {
     }
 
     /**
-     * Check if the given ApplicationInfo may use the NFCEE.
-     * Assumes ApplicationInfo came from package manager,
-     * so no need to confirm {uid, pkg} is valid.
+     * Check if the given ApplicationInfo may use the NFCCEFH. Assumes ApplicationInfo came from
+     * package manager, so no need to confirm {uid, pkg} is valid.
      */
     public boolean check(ApplicationInfo info) {
         synchronized (this) {
             Boolean access = mUidCache.get(info.uid);
             if (access == null) {
-                access = checkPackageNfceeAccess(info.packageName);
+                access = checkPackageNfcCefhAccess(info.packageName);
                 mUidCache.put(info.uid, access);
             }
             return access;
@@ -124,10 +125,9 @@ public class NfceeAccessControl {
     }
 
     /**
-     * Check with package manager if the pkg may use NFCEE.
-     * Does not use cache.
+     * Check with package manager if the pkg may use NFCCEFH. Does not use cache.
      */
-    boolean checkPackageNfceeAccess(String pkg) {
+    boolean checkPackageNfcCefhAccess(String pkg) {
         PackageManager pm = mContext.getPackageManager();
         try {
             PackageInfo info = pm.getPackageInfo(pkg, PackageManager.GET_SIGNATURES);
@@ -135,30 +135,34 @@ public class NfceeAccessControl {
                 return false;
             }
 
-            for (Signature s : info.signatures){
+            for (Signature s : info.signatures) {
                 if (s == null) {
                     continue;
                 }
-                String[] packages = mNfceeAccess.get(s);
+                String[] packages = mNfcCefhAccess.get(s);
                 if (packages == null) {
                     continue;
                 }
                 if (packages.length == 0) {
                     // wildcard access
-                    if (DBG) Log.d(TAG, "Granted NFCEE access to " + pkg + " (wildcard)");
+                    if (DBG) {
+                        Log.d(TAG, "Granted NFCCEFH access to " + pkg + " (wildcard)");
+                    }
                     return true;
                 }
                 for (String p : packages) {
                     if (pkg.equals(p)) {
                         // explicit package access
-                        if (DBG) Log.d(TAG, "Granted access to " + pkg + " (explicit)");
+                        if (DBG) {
+                            Log.d(TAG, "Granted access to " + pkg + " (explicit)");
+                        }
                         return true;
                     }
                 }
             }
 
             if (mDebugPrintSignature) {
-                Log.w(TAG, "denied NFCEE access for " + pkg + " with signature:");
+                Log.w(TAG, "denied NFCCEFH access for " + pkg + " with signature:");
                 for (Signature s : info.signatures) {
                     if (s != null) {
                         Log.w(TAG, s.toCharsString());
@@ -172,14 +176,13 @@ public class NfceeAccessControl {
     }
 
     /**
-     * Parse nfcee_access.xml, populate mNfceeAccess
-     * Policy is to ignore unexpected XML elements and continue processing,
-     * except for obvious errors within a <signer> group since they might cause
-     * package names to by ignored and therefore wildcard access granted
-     * by mistake. Those errors invalidate the entire <signer> group.
+     * Parse nfccefh_access.xml, populate mNfcCefhAccess Policy is to ignore unexpected XML elements
+     * and continue processing, except for obvious errors within a <signer> group since they might
+     * cause package names to by ignored and therefore wildcard access granted by mistake. Those
+     * errors invalidate the entire <signer> group.
      */
-    boolean parseNfceeAccess() {
-        File file = new File(Environment.getRootDirectory(), NFCEE_ACCESS_PATH);
+    boolean parseNfcCefhAccess() {
+        File file = new File(Environment.getRootDirectory(), NFCCEFH_ACCESS_PATH);
         FileReader reader = null;
         boolean debug = false;
         try {
@@ -208,7 +211,7 @@ public class NfceeAccessControl {
                         Log.w(TAG, "signer tag is missing android:signature attribute, igorning");
                         continue;
                     }
-                    if (mNfceeAccess.containsKey(signature)) {
+                    if (mNfcCefhAccess.containsKey(signature)) {
                         Log.w(TAG, "duplicate signature, ignoring");
                         signature = null;
                         continue;
@@ -218,7 +221,7 @@ public class NfceeAccessControl {
                         Log.w(TAG, "mis-matched signer tag");
                         continue;
                     }
-                    mNfceeAccess.put(signature, packages.toArray(new String[0]));
+                    mNfcCefhAccess.put(signature, (String[]) packages.toArray(new String[0]));
                     packages.clear();
                 } else if (event == XmlPullParser.START_TAG && "package".equals(tag)) {
                     if (signature == null) {
@@ -234,7 +237,7 @@ public class NfceeAccessControl {
                     }
                     if (name == null) {
                         Log.w(TAG, "package missing android:name, ignoring signer group");
-                        signature = null;  // invalidate signer
+                        signature = null; // invalidate signer
                         continue;
                     }
                     // check for duplicate package names
@@ -250,36 +253,37 @@ public class NfceeAccessControl {
                 }
             }
         } catch (XmlPullParserException e) {
-            Log.w(TAG, "failed to load NFCEE access list", e);
-            mNfceeAccess.clear();  // invalidate entire access list
+            Log.w(TAG, "failed to load NFCCEFH access list", e);
+            mNfcCefhAccess.clear(); // invalidate entire access list
         } catch (FileNotFoundException e) {
-            Log.w(TAG, "could not find " + NFCEE_ACCESS_PATH + ", no NFCEE access allowed");
+            Log.w(TAG, "could not find " + NFCCEFH_ACCESS_PATH + ", no NFCCEFH access allowed");
         } catch (IOException e) {
-            Log.e(TAG, "Failed to load NFCEE access list", e);
-            mNfceeAccess.clear();  // invalidate entire access list
+            Log.e(TAG, "Failed to load NFCCEFH access list", e);
+            mNfcCefhAccess.clear(); // invalidate entire access list
         } finally {
             if (reader != null) {
                 try {
                     reader.close();
-                } catch (IOException e2)  { }
+                } catch (IOException e2) {
+                }
             }
         }
-        Log.i(TAG, "read " + mNfceeAccess.size() + " signature(s) for NFCEE access");
+        Log.i(TAG, "read " + mNfcCefhAccess.size() + " signature(s) for NFCCEFH access");
         return debug;
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        pw.println("mNfceeAccess=");
-        for (Signature s : mNfceeAccess.keySet()) {
+        pw.println("mNfcCefhAccess=");
+        for (Signature s : mNfcCefhAccess.keySet()) {
             pw.printf("\t%s [", s.toCharsString());
-            String[] ps = mNfceeAccess.get(s);
+            String[] ps = mNfcCefhAccess.get(s);
             for (String p : ps) {
                 pw.printf("%s, ", p);
             }
             pw.println("]");
         }
         synchronized (this) {
-            pw.println("mNfceeUidCache=");
+            pw.println("mNfcCefhUidCache=");
             for (Integer uid : mUidCache.keySet()) {
                 Boolean b = mUidCache.get(uid);
                 pw.printf("\t%d %s\n", uid, b);

@@ -18,11 +18,13 @@ package com.android.nfc.dhimpl;
 
 import com.android.nfc.DeviceHost;
 import com.android.nfc.LlcpException;
+import com.android.nfc.NfcService;
 
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.nfc.MultiSERoutingInfo;
 import android.nfc.ErrorCodes;
 import android.nfc.NfcAdapter;
 import android.nfc.NfcManager;
@@ -196,6 +198,12 @@ public class NativeNfcManager implements DeviceHost {
     @Override
     public void doDeselectSecureElement(){
     }
+
+    @Override
+    public native boolean doSetMultiSERoutingTable(MultiSERoutingInfo[] routingInfo);
+
+    @Override
+    public native boolean doSetMultiSEState(boolean state);
 
     @Override
     public native void doUiccSetSwpMode(int mode);
@@ -412,6 +420,20 @@ public class NativeNfcManager implements DeviceHost {
      */
     private void notifyUiccReaderModeListeners(NativeNfcTag tag) {
         mListener.onUiccReaderModeDetected(tag);
+    }
+
+    /**
+     * Notifies CEFH Activated event
+     */
+     private void notifyCEFromHostActivated() {
+         mListener.onCEFromHostActivatedEvent();
+     }
+
+    /**
+     * Notifies CEFH DeActivated event
+     */
+     private void notifyCEFromHostDeActivated() {
+         mListener.onCEFromHostDeActivatedEvent();
     }
 
     /**

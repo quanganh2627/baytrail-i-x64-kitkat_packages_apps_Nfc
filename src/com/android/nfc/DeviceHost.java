@@ -34,6 +34,7 @@
  ******************************************************************************/
 package com.android.nfc;
 
+import android.nfc.MultiSERoutingInfo;
 import android.nfc.NdefMessage;
 import android.os.Bundle;
 
@@ -282,4 +283,8 @@ public interface DeviceHost {
     int getDefaultLlcpRwSize();
 
     String dump();
+
+    public boolean doSetMultiSERoutingTable(MultiSERoutingInfo[] routingInfo);
+
+    public boolean doSetMultiSEState(boolean state);
 }

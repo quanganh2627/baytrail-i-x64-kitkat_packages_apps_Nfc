@@ -34,7 +34,7 @@
                  android:backupAgent="com.android.nfc.NfcBackupAgent"
     >
 
-        <uses-library android:name="org.simalliance.openmobileapi" android:required="true" />
+        <uses-library android:name="org.simalliance.openmobileapi" android:required="false" />
 
         <meta-data android:name="com.google.android.backup.api_key"
             android:value="AEdPqrEAAAAIbiKKs0wlimxeJ9y8iRIaBOH6aeb2IurmZyBHvg" />
