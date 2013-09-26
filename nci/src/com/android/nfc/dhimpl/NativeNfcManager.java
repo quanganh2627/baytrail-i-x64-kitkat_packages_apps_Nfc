@@ -385,6 +385,24 @@ public class NativeNfcManager implements DeviceHost {
         mListener.onCardEmulationAidSelected(aid);
     }
 
+    private void notifyTransactionListeners(byte[] aid, byte[] data, int evtSrc) {
+        mListener.onCardEmulationAidSelected(aid,data,evtSrc);
+    }
+
+    /**
+     * Notifies transaction
+     */
+    private void notifyConnectivityListeners(int evtSrc) {
+        mListener.onConnectivityEvent(evtSrc);
+    }
+
+    /**
+     * Notifies transaction
+     */
+    private void notifyEmvcoMultiCardDetectedListeners() {
+        mListener.onEmvcoMultiCardDetectedEvent();
+    }
+
     /**
      * Notifies P2P Device detected, to activate LLCP link
      */

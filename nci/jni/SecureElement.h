@@ -287,8 +287,35 @@ public:
     ** Returns:         None
     **
     *******************************************************************************/
-    void notifyTransactionListenersOfAid (const UINT8* aid, UINT8 aidLen);
+#ifdef NXP_EXT
+    void notifyTransactionListenersOfAid (const UINT8* aid, UINT8 aidLen, const UINT8* data, UINT8 dataLen,UINT32 evtSrc);
 
+    /*******************************************************************************
+    **
+    ** Function:        notifyConnectivityListeners
+    **
+    ** Description:     Notify the NFC service about a connectivity event from secure element.
+    **                  evtSrc: source of event UICC/eSE.
+    **
+    ** Returns:         None
+    **
+    *******************************************************************************/
+    void notifyConnectivityListeners (UINT8 evtSrc);
+
+    /*******************************************************************************
+    **
+    ** Function:        notifyEmvcoMultiCardDetectedListeners
+    **
+    ** Description:     Notify the NFC service about a multiple card presented to
+    **                  Emvco reader.
+    **
+    ** Returns:         None
+    **
+    *******************************************************************************/
+    void notifyEmvcoMultiCardDetectedListeners ();
+#else
+    void notifyTransactionListenersOfAid (const UINT8* aid, UINT8 aidLen);
+#endif
 
     /*******************************************************************************
     **

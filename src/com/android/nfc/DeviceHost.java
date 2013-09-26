@@ -52,14 +52,25 @@ public interface DeviceHost {
         /**
          * Notifies transaction
          */
+        public void onCardEmulationAidSelected(byte[] aid, byte[] data, int evtSrc);
         public void onCardEmulationAidSelected(byte[] aid, byte[] data);
-
         public void onCardEmulationAidSelected(byte[] aid);
 
         /**
          * Notifies connectivity event from the SE (UICC)
          */
         public void onConnectivityEvent();
+
+         /**
+         * Notifies connectivity event from the SE
+         */
+        public void onConnectivityEvent(int evtSrc);
+
+        /**
+         * Notifies about multiple card presented to
+         * emvco reader.
+         */
+        public void onEmvcoMultiCardDetectedEvent();
 
         /**
          * Notifies P2P Device detected, to activate LLCP link

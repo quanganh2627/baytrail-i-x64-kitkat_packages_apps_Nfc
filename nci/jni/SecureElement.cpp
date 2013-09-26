@@ -723,7 +723,12 @@ TheEnd:
 ** Returns:         None
 **
 *******************************************************************************/
+#ifdef NXP_EXT
+void SecureElement::notifyTransactionListenersOfAid (const UINT8* aidBuffer, UINT8 aidBufferLen,
+        const UINT8* dataBuffer, UINT8 dataBufferLen,UINT32 evtSrc)
+#else
 void SecureElement::notifyTransactionListenersOfAid (const UINT8* aidBuffer, UINT8 aidBufferLen)
+#endif
 {
     static const char fn [] = "SecureElement::notifyTransactionListenersOfAid";
     ALOGD ("%s: enter; aid len=%u", fn, aidBufferLen);
@@ -765,8 +770,105 @@ void SecureElement::notifyTransactionListenersOfAid (const UINT8* aidBuffer, UIN
         ALOGE ("%s: fail fill array", fn);
         goto TheEnd;
     }
+#ifdef NXP_EXT
+    if (dataBufferLen > 0)
+    {
+        const UINT16 dataTlvMaxLen = dataBufferLen + 10;
+        UINT8* datatlv = new UINT8 [dataTlvMaxLen];
+        if (datatlv == NULL)
+        {
+            ALOGE ("%s: fail allocate tlv", fn);
+            return;
+        }
 
-    e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifyTransactionListeners, tlvJavaArray.get());
+        memcpy (datatlv, dataBuffer, dataBufferLen);
+        UINT16 dataTlvActualLen = dataBufferLen;
+
+        ScopedLocalRef<jobject> dataTlvJavaArray(e, e->NewByteArray(dataTlvActualLen));
+        if (dataTlvJavaArray.get() == NULL)
+        {
+            ALOGE ("%s: fail allocate array", fn);
+            goto Clean;
+        }
+
+        e->SetByteArrayRegion ((jbyteArray)dataTlvJavaArray.get(), 0,
+                dataTlvActualLen, (jbyte *)datatlv);
+        if (e->ExceptionCheck())
+        {
+            e->ExceptionClear();
+            ALOGE ("%s: fail fill array", fn);
+            goto Clean;
+        }
+
+        e->CallVoidMethod (mNativeData->manager,
+                android::gCachedNfcManagerNotifyTransactionListeners,
+                tlvJavaArray.get(), dataTlvJavaArray.get(), evtSrc);
+        if (e->ExceptionCheck())
+        {
+            e->ExceptionClear();
+            ALOGE ("%s: fail notify", fn);
+            goto Clean;
+        }
+
+     Clean:
+        delete [] datatlv;
+    }
+    else
+    {
+        e->CallVoidMethod (mNativeData->manager,
+                android::gCachedNfcManagerNotifyTransactionListeners,
+                tlvJavaArray.get(), NULL, evtSrc);
+
+        if (e->ExceptionCheck())
+        {
+            e->ExceptionClear();
+            ALOGE ("%s: fail notify", fn);
+            goto TheEnd;
+        }
+    }
+#else
+    e->CallVoidMethod (mNativeData->manager,
+            android::gCachedNfcManagerNotifyTransactionListeners, tlvJavaArray.get());
+
+    if (e->ExceptionCheck())
+    {
+        e->ExceptionClear();
+        ALOGE ("%s: fail notify", fn);
+        goto TheEnd;
+    }
+#endif
+
+TheEnd:
+    delete [] tlv;
+    ALOGD ("%s: exit", fn);
+}
+
+#ifdef NXP_EXT
+/*******************************************************************************
+**
+** Function:        notifyConnectivityListeners
+**
+** Description:     Notify the NFC service about a connectivity event from secure element.
+**                  evtSrc: source of event UICC/eSE.
+**
+** Returns:         None
+**
+*******************************************************************************/
+void SecureElement::notifyConnectivityListeners (UINT8 evtSrc)
+{
+    static const char fn [] = "SecureElement::notifyConnectivityListeners";
+    ALOGD ("%s: enter; evtSrc =%u", fn, evtSrc);
+
+    JNIEnv* e = NULL;
+    ScopedAttach attach(mNativeData->vm, &e);
+    if (e == NULL)
+    {
+        ALOGE ("%s: jni env is null", fn);
+        return;
+    }
+
+    e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifyConnectivityListeners,
+            evtSrc);
     if (e->ExceptionCheck())
     {
         e->ExceptionClear();
@@ -775,11 +877,45 @@ void SecureElement::notifyTransactionListenersOfAid (const UINT8* aidBuffer, UIN
     }
 
 TheEnd:
-    delete [] tlv;
     ALOGD ("%s: exit", fn);
 }
 
+/*******************************************************************************
+**
+** Function:        notifyEmvcoMultiCardDetectedListeners
+**
+** Description:     Notify the NFC service about a multiple card presented to
+**                  Emvco reader.
+**
+** Returns:         None
+**
+*******************************************************************************/
+void SecureElement::notifyEmvcoMultiCardDetectedListeners ()
+{
+    static const char fn [] = "SecureElement::notifyEmvcoMultiCardDetectedListeners";
+    ALOGD ("%s: enter; evtSrc =%u", fn);
 
+    JNIEnv* e = NULL;
+    ScopedAttach attach(mNativeData->vm, &e);
+    if (e == NULL)
+    {
+        ALOGE ("%s: jni env is null", fn);
+        return;
+    }
+
+    e->CallVoidMethod (mNativeData->manager,
+        android::gCachedNfcManagerNotifyEmvcoMultiCardDetectedListeners);
+    if (e->ExceptionCheck())
+    {
+        e->ExceptionClear();
+        ALOGE ("%s: fail notify", fn);
+        goto TheEnd;
+    }
+
+TheEnd:
+    ALOGD ("%s: exit", fn);
+}
+#endif
 /*******************************************************************************
 **
 ** Function:        connectEE
@@ -1392,7 +1528,7 @@ void SecureElement::handleEEReaderEvent (int evt, int data, tNFA_HANDLE src)
 void SecureElement::resetRfFieldStatus ()
 {
     static const char fn [] = "SecureElement::resetRfFieldStatus`";
-    ALOGD ("%s: enter;");
+    ALOGD ("%s: enter;",fn);
 
     mMutex.lock();
     mRfFieldIsOn = false;
@@ -1981,7 +2117,13 @@ void SecureElement::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* eventD
                      (app_init.data[0] == 0x90) &&
                      (app_init.data[1] == 0x00) )
                 {
+#ifdef NXP_EXT
+                    sSecElem.notifyTransactionListenersOfAid (app_init.aid, app_init.len_aid,
+                            app_init.data, app_init.len_data,
+                            SecureElement::getInstance().getGenericEseId(action.ee_handle));
+#else
                     sSecElem.notifyTransactionListenersOfAid (app_init.aid, app_init.len_aid);
+#endif
                 }
             }
             else if (action.trigger == NFC_EE_TRIG_RF_PROTOCOL)
@@ -2167,7 +2309,9 @@ void SecureElement::nfaHciCallback (tNFA_HCI_EVT event, tNFA_HCI_EVT_DATA* event
 {
     static const char fn [] = "SecureElement::nfaHciCallback";
     ALOGD ("%s: event=0x%X", fn, event);
-
+#ifdef NXP_EXT
+    int evtSrc = 0xFF;
+#endif
     switch (event)
     {
     case NFA_HCI_REGISTER_EVT:
@@ -2216,7 +2360,15 @@ void SecureElement::nfaHciCallback (tNFA_HCI_EVT event, tNFA_HCI_EVT_DATA* event
                     eventData->created.status, eventData->created.pipe, eventData->created.source_gate, eventData->created.dest_host, eventData->created.dest_gate);
             SyncEventGuard guard (sSecElem.mCreatePipeEvent);
             sSecElem.mCommandStatus = eventData->created.status;
+#ifdef NXP_EXT
+            if (eventData->created.dest_gate == 0xF0)
+            {
+                ALOGE("Pipe=0x%x created and updated for se transcieve", eventData->created.pipe);
+                sSecElem.mNewPipeId = eventData->created.pipe;
+            }
+#else
             sSecElem.mNewPipeId = eventData->created.pipe;
+#endif
             sSecElem.mCreatePipeEvent.notifyOne();
         }
         break;
@@ -2258,7 +2410,24 @@ void SecureElement::nfaHciCallback (tNFA_HCI_EVT event, tNFA_HCI_EVT_DATA* event
 
     case NFA_HCI_EVENT_RCVD_EVT:
         ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; code: 0x%X; pipe: 0x%X; data len: %u", fn,
-                eventData->rcvd_evt.evt_code, eventData->rcvd_evt.pipe, eventData->rcvd_evt.evt_len);
+                eventData->rcvd_evt.evt_code, eventData->rcvd_evt.pipe,
+                eventData->rcvd_evt.evt_len);
+#ifdef NXP_EXT
+        if (eventData->rcvd_evt.pipe == 0x0A) // UICC
+        {
+            ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; source UICC",fn);
+            evtSrc = SecureElement::getInstance().getGenericEseId(EE_HANDLE_0xF4 &
+                    ~NFA_HANDLE_GROUP_EE);
+        }
+        else if (eventData->rcvd_evt.pipe == 0x16) // ESE
+        {
+            ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; source ESE",fn);
+            evtSrc = SecureElement::getInstance().getGenericEseId(EE_HANDLE_0xF3 &
+                    ~NFA_HANDLE_GROUP_EE);
+        }
+
+        ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; ################################### ", fn);
+#endif
         if ((eventData->rcvd_evt.pipe == STATIC_PIPE_0x70) || (eventData->rcvd_evt.pipe == STATIC_PIPE_0x71))
         {
             ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; data from static pipe", fn);
@@ -2277,15 +2446,48 @@ void SecureElement::nfaHciCallback (tNFA_HCI_EVT event, tNFA_HCI_EVT_DATA* event
         {
             ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; NFA_HCI_EVT_TRANSACTION", fn);
             // If we got an AID, notify any listeners
-            if ((eventData->rcvd_evt.evt_len > 3) && (eventData->rcvd_evt.p_evt_buf[0] == 0x81) )
-                sSecElem.notifyTransactionListenersOfAid (&eventData->rcvd_evt.p_evt_buf[2], eventData->rcvd_evt.p_evt_buf[1]);
+            if ((eventData->rcvd_evt.evt_len > 3) && (eventData->rcvd_evt.p_evt_buf[0] == 0x81))
+#ifdef NXP_EXT
+            {
+                int aidlen = eventData->rcvd_evt.p_evt_buf[1];
+                UINT8* data = NULL;
+                UINT8 datalen = 0;
+                if ((eventData->rcvd_evt.evt_len > 2+aidlen) &&
+                        (eventData->rcvd_evt.p_evt_buf[2+aidlen] == 0x82))
+                {
+                    datalen = eventData->rcvd_evt.p_evt_buf[2+aidlen+1];
+                    data  = &eventData->rcvd_evt.p_evt_buf[2+aidlen+2];
+                }
+                sSecElem.notifyTransactionListenersOfAid (&eventData->rcvd_evt.p_evt_buf[2],
+                        aidlen,data,datalen,evtSrc);
+            }
         }
+        else if (eventData->rcvd_evt.evt_code == NFA_HCI_EVT_CONNECTIVITY)
+        {
+            ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; NFA_HCI_EVT_CONNECTIVITY", fn);
+            int pipe = (eventData->rcvd_evt.pipe);
+            sSecElem.notifyConnectivityListeners (evtSrc);
+        }
+        else
+        {
+            ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; ################ eventData->rcvd_evt.evt_code \
+                    = 0x%x , NFA_HCI_EVT_CONNECTIVITY = 0x%x", fn, eventData->rcvd_evt.evt_code,
+                    NFA_HCI_EVT_CONNECTIVITY);
+
+            ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; ################################### ", fn);
+
+        }
+#else
+                sSecElem.notifyTransactionListenersOfAid (&eventData->rcvd_evt.p_evt_buf[2],
+                        eventData->rcvd_evt.p_evt_buf[1]);
+        }
+#endif
         break;
 
     case NFA_HCI_SET_REG_RSP_EVT: //received response to write registry command
         {
             tNFA_HCI_REGISTRY& registry = eventData->registry;
-            ALOGD ("%s: NFA_HCI_SET_REG_RSP_EVT; status=0x%X; pipe=0x%X", fn, registry.status, registry.pipe);
+            ALOGD ("%s: NFA_HCI_SET_REG_RSP_EVT; status=0x%X; pipe=0x%X", fn,registry.status, registry.pipe);
             SyncEventGuard guard (sSecElem.mRegistryEvent);
             sSecElem.mRegistryEvent.notifyOne ();
             break;
@@ -2482,7 +2684,7 @@ bool SecureElement::routeToSecureElement ()
 #ifdef NXP_EXT
     tNFA_EE_INFO* eeinfo = findEeByHandle(mActiveEeHandle);
 
-    if(eeinfo->la_protocol == 0x00 && eeinfo->lb_protocol != 0x00 )
+    if(eeinfo != NULL && eeinfo->la_protocol == 0x00 && eeinfo->lb_protocol != 0x00)
     {
         UINT8 val[] = {0x00};
 

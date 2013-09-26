@@ -30,6 +30,8 @@ namespace android
     extern jmethodID gCachedNfcManagerNotifyCEFromHostActivated;
     extern jmethodID gCachedNfcManagerNotifyCEFromHostDeActivated;
 #ifdef NXP_EXT
+    extern jmethodID gCachedNfcManagerNotifyConnectivityListeners;
+    extern jmethodID gCachedNfcManagerNotifyEmvcoMultiCardDetectedListeners;
     extern jmethodID gCachedNfcManagerNotifySWPReaderRequested;
     extern jmethodID gCachedNfcManagerNotifySWPReaderActivated;
     extern jmethodID gCachedNfcManagerNotifySWPReaderDeActivated;
