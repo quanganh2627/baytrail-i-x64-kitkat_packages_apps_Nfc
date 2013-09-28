@@ -48,8 +48,10 @@
 #include <ScopedLocalRef.h>
 #include <ScopedUtfChars.h>
 #ifdef NXP_EXT
-#include "CEFromHost.h"
 #include <cutils/properties.h>
+#include "CEFromHost.h"
+#include "HciRFParams.h"
+#include "JcopOsDownload.h"
 #endif
 
 extern "C"
@@ -62,11 +64,15 @@ extern "C"
     #include "ce_api.h"
 #ifdef NXP_EXT
     #include "phNxpExtns.h"
+    #include "phNxpConfig.h"
 #endif
 }
 
 extern UINT8 *p_nfa_dm_start_up_cfg;
 extern const UINT8 nfca_version_string [];
+#ifdef NXP_EXT
+extern tNFA_STATUS EmvCo_dosetPoll(jboolean enable);
+#endif
 namespace android
 {
     extern bool gIsTagDeactivating;
@@ -109,6 +115,9 @@ namespace android
 #ifdef NXP_EXT
     jmethodID               gCachedNfcManagerNotifyCEFromHostActivated;
     jmethodID               gCachedNfcManagerNotifyCEFromHostDeActivated;
+    jmethodID               gCachedNfcManagerNotifySWPReaderRequested;
+    jmethodID               gCachedNfcManagerNotifySWPReaderActivated;
+    jmethodID               gCachedNfcManagerNotifySWPReaderDeActivated;
     const char*             gNativeNfcCEFromHostClassName             = "com/android/nfc/dhimpl/NativeNfcCEFromHost";
 #endif
     const char*             gNativeP2pDeviceClassName                 = "com/android/nfc/dhimpl/NativeP2pDevice";
@@ -140,7 +149,6 @@ static jmethodID            sCachedNfcManagerNotifyTargetDeselected;
 static SyncEvent            sNfaEnableEvent;  //event for NFA_Enable()
 static SyncEvent            sNfaDisableEvent;  //event for NFA_Disable()
 static SyncEvent            sNfaEnableDisablePollingEvent;  //event for NFA_EnablePolling(), NFA_DisablePolling()
-static SyncEvent            sNfaGetConfigEvent;  // event for Get_Config....
 static bool                 sIsNfaEnabled = false;
 static bool                 sDiscoveryEnabled = false;  //is polling for tag?
 static bool                 sIsDisabling = false;
@@ -152,10 +160,14 @@ static bool                 sAbortConnlessWait = false;
 static UINT8                sIsSecElemSelected = 0;  // has NFC service selected a sec elem
 static UINT8                sIsSecElemDetected = 0;  // has NFC service selected a sec elem
 SyncEvent                   sNfaSetConfigEvent;  // event for Set_Config....
+SyncEvent                   sNfaGetConfigEvent;  // event for Get_Config....
+static int nfcManager_getChipVer(JNIEnv* e, jobject o);
+static int nfcManager_doJcosDownload(JNIEnv* e, jobject o);
 bool isDiscoveryStarted();
 #else
 static bool                 sIsSecElemSelected = false;  //has NFC service selected a sec elem
 static SyncEvent            sNfaSetConfigEvent;  // event for Set_Config....
+static SyncEvent            sNfaGetConfigEvent;  // event for Get_Config....
 #endif
 #define CONFIG_UPDATE_TECH_MASK     (1 << 1)
 #define DEFAULT_TECH_MASK           (NFA_TECHNOLOGY_MASK_A \
@@ -346,6 +358,15 @@ static void nfaConnectionCallback (UINT8 connEvent, tNFA_CONN_EVT_DATA* eventDat
     case NFA_ACTIVATED_EVT: // NFC link/protocol activated
         ALOGD("%s: NFA_ACTIVATED_EVT: gIsSelectingRfInterface=%d, sIsDisabling=%d", __FUNCTION__, gIsSelectingRfInterface, sIsDisabling);
 #ifdef NXP_EXT
+        /*
+         * Handle Reader over SWP START_READER_EVENT
+         * */
+        if(eventData->activated.activate_ntf.intf_param.type == NCI_INTERFACE_UICC_DIRECT || eventData->activated.activate_ntf.intf_param.type == NCI_INTERFACE_ESE_DIRECT )
+        {
+            SecureElement::getInstance().notifyEEReaderEvent(NFA_RD_SWP_READER_START, eventData->activated.activate_ntf.rf_tech_param.mode);
+            break;
+        }
+
         if (EXTNS_GetConnectFlag() == TRUE)
         {
             NfcTag::getInstance().setActivationState ();
@@ -379,9 +400,9 @@ static void nfaConnectionCallback (UINT8 connEvent, tNFA_CONN_EVT_DATA* eventDat
             } else {
                 ALOGE ("%s: Failed to disable RF field events", __FUNCTION__);
             }
+#endif
             // For the SE, consider the field to be on while p2p is active.
             SecureElement::getInstance().notifyRfFieldEvent (true);
-#endif
         }
         else if (pn544InteropIsBusy() == false)
         {
@@ -647,6 +668,15 @@ static jboolean nfcManager_initNativeStruc (JNIEnv* e, jobject o)
 
     gCachedNfcManagerNotifyCEFromHostDeActivated = e->GetMethodID (cls.get(),
             "notifyCEFromHostDeActivated", "()V");
+
+    gCachedNfcManagerNotifySWPReaderRequested = e->GetMethodID (cls.get(),
+            "notifySWPReaderRequested", "(ZZ)V");
+
+    gCachedNfcManagerNotifySWPReaderActivated = e->GetMethodID (cls.get(),
+            "notifySWPReaderActivated", "()V");
+
+    gCachedNfcManagerNotifySWPReaderDeActivated = e->GetMethodID (cls.get(),
+            "notifyonSWPReaderDeActivated", "()V");
 #endif
     if (nfc_jni_cache_object(e, gNativeNfcTagClassName, &(nat->cached_NfcTag)) == -1)
     {
@@ -714,6 +744,9 @@ void nfaDeviceManagementCallback (UINT8 dmEvent, tNFA_DM_CBACK_DATA* eventData)
     case NFA_DM_GET_CONFIG_EVT: /* Result of NFA_GetConfig */
         ALOGD ("%s: NFA_DM_GET_CONFIG_EVT", __FUNCTION__);
         {
+#ifdef NXP_EXT
+            HciRFParams::getInstance().connectionEventHandler(dmEvent,eventData);
+#endif
             SyncEventGuard guard (sNfaGetConfigEvent);
             if (eventData->status == NFA_STATUS_OK &&
                     eventData->get_config.tlv_size <= sizeof(sConfig))
@@ -861,6 +894,8 @@ static jboolean nfcManager_doInitialize (JNIEnv* e, jobject o)
                 SecureElement::getInstance().initialize (getNative(e, o));
 #ifdef NXP_EXT
                 CEFromHost::getInstance().initialize(getNative(e, o));
+                JcopOsDwnld::getInstance().initialize (getNative(e, o));
+                HciRFParams::getInstance().initialize ();
                 sIsSecElemSelected = (SecureElement::getInstance().getActualNumEe() - 1 );
                 sIsSecElemDetected = sIsSecElemSelected;
 #endif
@@ -1416,7 +1451,11 @@ static void nfcManager_doSelectSecureElement(JNIEnv *e, jobject o)
     ALOGD ("%s: enter", __FUNCTION__);
     bool stat = true;
 
+#ifdef NXP_EXT
+    if (sIsSecElemSelected >= sIsSecElemDetected)
+#else
     if (sIsSecElemSelected)
+#endif
     {
         ALOGD ("%s: already selected", __FUNCTION__);
         goto TheEnd;
@@ -1430,15 +1469,12 @@ static void nfcManager_doSelectSecureElement(JNIEnv *e, jobject o)
     }
 
 #ifdef NXP_EXT
-    if (sIsSecElemSelected >= sIsSecElemDetected)
-    {
-        ALOGD ("%s: already selected", __FUNCTION__);
-        goto TheEnd;
-    }
     stat = SecureElement::getInstance().activate (seId);
     if (stat)
+    {
         SecureElement::getInstance().routeToSecureElement ();
-    sIsSecElemSelected++;
+        sIsSecElemSelected++;
+    }
 #else
     stat = SecureElement::getInstance().activate (0xABCDEF);
     if (stat)
@@ -1451,6 +1487,459 @@ static void nfcManager_doSelectSecureElement(JNIEnv *e, jobject o)
 TheEnd:
     ALOGD ("%s: exit", __FUNCTION__);
 }
+
+#ifdef NXP_EXT
+/*******************************************************************************
+**
+** Function:        nfcManager_GetDefaultSE
+**
+** Description:     Get default Secure Element.
+**
+**
+** Returns:         Returns 0.
+**
+*******************************************************************************/
+static jint nfcManager_GetDefaultSE(JNIEnv *e, jobject o)
+{
+    unsigned long num;
+    GetNxpNumValue (NAME_NXP_DEFAULT_SE, (void*)&num, sizeof(num));
+    ALOGD ("%d: nfcManager_GetDefaultSE", num);
+    return num;
+
+}
+static jintArray nfcManager_getSecureElementTechList(JNIEnv *e, jobject o)
+{
+
+    jintArray jTechList = NULL;
+    uint8_t sak;
+    int bufflen = 0;
+    jint techlist[2];
+    ALOGD ("nfcManager_getSecureElementTechList -Enter");
+    sak = HciRFParams::getInstance().getESeSak();
+
+    if(sak & 0x20)
+    {
+        techlist[0] = TARGET_TYPE_ISO14443_4;
+        bufflen++;
+    }
+    if(bufflen > 0)
+    {
+        jTechList = e->NewIntArray (bufflen);
+        e->SetIntArrayRegion (jTechList, 0, bufflen, (jint*) techlist);
+    }
+    return jTechList;
+
+}
+static jbyteArray nfcManager_getSecureElementUid(JNIEnv *e, jobject o)
+{
+    unsigned long num=0;
+    jbyteArray jbuff = NULL;
+    uint8_t bufflen = 0;
+    uint8_t buf[16] = {0,};
+
+    ALOGD ("nfcManager_getSecureElementUid -Enter");
+    HciRFParams::getInstance().getESeUid(&buf[0], &bufflen);
+    if(bufflen > 0)
+     {
+         jbuff = e->NewByteArray (bufflen);
+         e->SetByteArrayRegion (jbuff, 0, bufflen, (jbyte*) buf);
+     }
+    return jbuff;
+}
+static tNFA_STATUS nfcManager_setEmvCoPollProfile(JNIEnv *e, jobject o,
+        jboolean enable, jint route)
+{
+    tNFA_STATUS status = NFA_STATUS_FAILED;
+    tNFA_TECHNOLOGY_MASK tech_mask = 0;
+
+    ALOGE("In nfcManager_setEmvCoPollProfile enable = 0x%x route = 0x%x", enable, route);
+    /* Stop polling */
+    if ( isDiscoveryStarted())
+    {
+        // Stop RF discovery to reconfigure
+        startRfDiscovery(false);
+    }
+
+    status = EmvCo_dosetPoll(enable);
+    if (status != NFA_STATUS_OK)
+    {
+        ALOGE ("%s: fail enable polling; error=0x%X", __FUNCTION__, status);
+        goto TheEnd;
+    }
+
+    if (enable)
+    {
+        if (route == 0x00)
+        {
+            /* DH enable polling for A and B*/
+            tech_mask = NFA_TECHNOLOGY_MASK_A | NFA_TECHNOLOGY_MASK_B;
+        }
+        else if(route == 0x01)
+        {
+            /* UICC is end-point at present not supported by FW */
+            /* TBD : Get eeinfo (use handle appropirately, depending up
+             * on it enable the polling */
+        }
+        else if(route == 0x02)
+        {
+            /* ESE is end-point at present not supported by FW */
+            /* TBD : Get eeinfo (use handle appropirately, depending up
+             * on it enable the polling */
+        }
+    }
+    else
+    {
+        unsigned long num = 0;
+        if (GetNumValue(NAME_POLLING_TECH_MASK, &num, sizeof(num)))
+            tech_mask = num;
+    }
+
+    ALOGD ("%s: enable polling", __FUNCTION__);
+    {
+        SyncEventGuard guard (sNfaEnableDisablePollingEvent);
+        status = NFA_EnablePolling (tech_mask);
+        if (status == NFA_STATUS_OK)
+        {
+            ALOGD ("%s: wait for enable event", __FUNCTION__);
+            sNfaEnableDisablePollingEvent.wait (); //wait for NFA_POLL_ENABLED_EVT
+        }
+        else
+        {
+            ALOGE ("%s: fail enable polling; error=0x%X", __FUNCTION__, status);
+        }
+    }
+
+TheEnd:
+    /* start polling */
+    if ( !isDiscoveryStarted())
+    {
+        // Start RF discovery to reconfigure
+        startRfDiscovery(true);
+    }
+    return status;
+
+}
+
+static jboolean com_android_nfc_NfcManager_doSetMultiSERoutingTable(JNIEnv *e, jobject o,jobjectArray routingInfos)
+{
+    ALOGD ("%s: enter", __FUNCTION__);
+    bool stat = true;
+    jint length = 0;
+    PowerSwitch::getInstance ().setLevel (PowerSwitch::FULL_POWER);
+    jboolean result = false;
+    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
+
+    if (sRfEnabled) {
+        // Stop RF Discovery if we were polling
+        startRfDiscovery (false);
+    }
+
+    length = e->GetArrayLength(routingInfos);
+
+    if (length > 0)
+    {
+        {
+            //Clear the routing table.
+            SyncEventGuard guard (SecureElement::getInstance().mAidAddRemoveEvent);
+            if((nfaStat = NFA_EeRemoveAidRouting(NFA_REMOVE_ALL_AID_LEN, NFA_REMOVE_ALL_AID)) == NFA_STATUS_OK)
+            {
+                SecureElement::getInstance().mAidAddRemoveEvent.wait();
+            }
+        }
+
+        {
+            SyncEventGuard guard (SecureElement::getInstance().mRoutingEvent);
+            tNFA_STATUS status =  NFA_EeSetDefaultProtoRouting(0x402,0,0,0);//UICC clear
+            if(status == NFA_STATUS_OK)
+            {
+                SecureElement::getInstance().mRoutingEvent.wait ();
+                result = true;
+            }
+
+        }
+        {
+            SyncEventGuard guard (SecureElement::getInstance().mRoutingEvent);
+            tNFA_STATUS status =  NFA_EeSetDefaultProtoRouting(0x4C0,0,0,0);//ESE clear
+            if(status == NFA_STATUS_OK)
+            {
+                SecureElement::getInstance().mRoutingEvent.wait ();
+                result = true;
+            }
+
+        }
+        {
+            SyncEventGuard guard (SecureElement::getInstance().mRoutingEvent);
+            tNFA_STATUS status =  NFA_EeSetDefaultProtoRouting(0x400,0,0,0);//Host clear
+            if(status == NFA_STATUS_OK)
+            {
+                SecureElement::getInstance().mRoutingEvent.wait ();
+                result = true;
+            }
+        }
+
+        {
+            SyncEventGuard guard (SecureElement::getInstance().mRoutingEvent);
+            tNFA_STATUS status =  NFA_EeSetDefaultTechRouting(0x402,0,0,0); //UICC clear
+            if(status == NFA_STATUS_OK)
+            {
+                SecureElement::getInstance().mRoutingEvent.wait ();
+                result = true;
+            }
+        }
+
+        {
+            SyncEventGuard guard (SecureElement::getInstance().mRoutingEvent);
+            tNFA_STATUS status =  NFA_EeSetDefaultTechRouting(0x4C0,0,0,0); //SMX clear
+            if(status == NFA_STATUS_OK)
+            {
+                SecureElement::getInstance().mRoutingEvent.wait ();
+                result = true;
+            }
+        }
+
+        {
+            SyncEventGuard guard (SecureElement::getInstance().mRoutingEvent);
+            tNFA_STATUS status =  NFA_EeSetDefaultTechRouting(0x400,0,0,0); //HOST clear
+            if(status == NFA_STATUS_OK)
+            {
+                SecureElement::getInstance().mRoutingEvent.wait ();
+                result = true;
+            }
+        }
+
+//        NFA_EeUpdateNow();
+
+        jobject routingInfo = e->GetObjectArrayElement(routingInfos, 0);
+        jclass routingInfo_cls = e->GetObjectClass(routingInfo);
+
+        jfieldID fRouteType = e->GetFieldID(routingInfo_cls, "mRouteType", "B");
+        jfieldID fRouteDetail = e->GetFieldID(routingInfo_cls, "mRouteDetail","[B");
+        jfieldID fLocation = e->GetFieldID(routingInfo_cls, "mLocation", "B");
+        jfieldID fPowerState = e->GetFieldID(routingInfo_cls, "mPowerState","B");
+
+        for (jint iCount = 0; iCount < length; iCount++)
+        {
+            routingInfo = e->GetObjectArrayElement(routingInfos, iCount);
+
+            if(NULL== routingInfo)
+                continue;
+
+            uint8_t routeType = (uint8_t) e->GetByteField(routingInfo,
+                    fRouteType);
+
+
+            if (/*ROUTE_AID*/1 == routeType)
+            {
+
+                jbyteArray routeDetailIntArr = (jbyteArray) e->GetObjectField(
+                        routingInfo, fRouteDetail);
+
+                if (NULL != routeDetailIntArr)
+                {
+                    uint8_t *routeDetailBytes =
+                            (uint8_t *) e->GetByteArrayElements(
+                                    routeDetailIntArr, NULL);
+
+                    jint len = e->GetArrayLength(routeDetailIntArr);
+
+                    uint8_t location = (uint8_t) e->GetByteField(routingInfo,
+                            fLocation);
+                    uint8_t powerState = (uint8_t) e->GetByteField(routingInfo,
+                            fPowerState);
+                    tNFA_HANDLE eeHandle = SecureElement::getInstance().getEseHandleFromGenericId(location);
+                    int i=0;
+                    for(i=0;i<len;i++)
+                    {
+                        ALOGE("com_android_nfc_NfcManager_doSetMultiSERoutingTable() aid[%d]=%02x",i,routeDetailBytes[i]);
+                    }
+                    ALOGE("com_android_nfc_NfcManager_doSetMultiSERoutingTable()  len=%02x aidBytes=%02x %02x ,\
+                        location=%02x , powerState=%02x", len, routeDetailBytes[0],routeDetailBytes[1],location,powerState);
+
+                    if (len >= NFA_MIN_AID_LEN
+                            && len <= NFA_MAX_AID_LEN)
+                    {
+                        ALOGE("com_android_nfc_NfcManager_doSetMultiSERoutingTable() - gaurd mAidAddRemoveEvent");
+                        {
+                            SyncEventGuard guard (SecureElement::getInstance().mAidAddRemoveEvent);
+                            ALOGE("com_android_nfc_NfcManager_doSetMultiSERoutingTable() - calling NFA_EeAddAidRouting");
+                            tNFA_STATUS status = NFA_EeAddAidRouting(eeHandle,len,routeDetailBytes,powerState);
+                            if(status == NFA_STATUS_OK)
+                            {
+                                ALOGE("com_android_nfc_NfcManager_doSetMultiSERoutingTable()\
+                                    - NFA_EeAddAidRouting status = NFA_STATUS_OK");
+                                SecureElement::getInstance().mAidAddRemoveEvent.wait();
+                                result = true;
+                            }
+                        }
+                    }
+
+                    /********Release elements*********/
+                    e->ReleaseByteArrayElements(routeDetailIntArr,
+                            (jbyte *) routeDetailBytes, JNI_ABORT);
+
+                }
+
+            } else if (/*ROUTE_PROTOCOL*/2 == routeType)
+            {
+
+                jbyteArray routeDetailByteArr = (jbyteArray) e->GetObjectField(
+                        routingInfo, fRouteDetail);
+
+                if (NULL != routeDetailByteArr)
+                {
+                    uint8_t *routeDetailBytes =
+                            (uint8_t *) e->GetByteArrayElements(
+                                    routeDetailByteArr, NULL);
+
+                    jint len = e->GetArrayLength(routeDetailByteArr);
+
+                    uint8_t location = (uint8_t) e->GetByteField(routingInfo,
+                            fLocation);
+                    uint8_t powerState = (uint8_t) e->GetByteField(routingInfo,
+                            fPowerState);
+                    tNFA_HANDLE eeHandle = SecureElement::getInstance().getEseHandleFromGenericId(location);
+
+                    ALOGE("com_android_nfc_NfcManager_doSetMultiSERoutingTable()  ROUTE_PROTOCOL ==> \
+                        routeDetailBytes=%02x  , location=%02x , powerState=%02x ",
+                        routeDetailBytes[0],location,powerState);
+
+                    if (0x01 == len)
+                    {
+                        jint protocols_switch_on;
+                        jint protocols_switch_off;
+                        jint protocols_battery_off;
+
+                        if (powerState & 0x01)
+                            protocols_switch_on = routeDetailBytes[0];
+                        if (powerState & 0x02)
+                            protocols_switch_off = routeDetailBytes[0];
+                        if (powerState & 0x04)
+                            protocols_battery_off = routeDetailBytes[0];
+                        {
+                            SyncEventGuard guard (SecureElement::getInstance().mRoutingEvent);
+                            tNFA_STATUS status =  NFA_EeSetDefaultProtoRouting(eeHandle,protocols_switch_on,
+                                    protocols_switch_off,
+                                    protocols_battery_off);
+                            if(status == NFA_STATUS_OK)
+                            {
+                                SecureElement::getInstance().mRoutingEvent.wait ();
+                                result = true;
+                            }
+                        }
+                    }
+                    /********Release elements*********/
+                    e->ReleaseByteArrayElements(routeDetailByteArr,
+                            (jbyte *) routeDetailBytes, JNI_ABORT);
+
+                }
+
+            } else if (/*ROUTE_TECHNOLOGY*/3 == routeType)
+            {
+                jbyteArray routeDetailByteArr = (jbyteArray) e->GetObjectField(
+                        routingInfo, fRouteDetail);
+
+                if (NULL != routeDetailByteArr)
+                {
+                    uint8_t *routeDetailBytes =
+                            (uint8_t *) e->GetByteArrayElements(
+                                    routeDetailByteArr, NULL);
+
+                    jint len = e->GetArrayLength(routeDetailByteArr);
+
+                    uint8_t location = (uint8_t) e->GetByteField(routingInfo,
+                            fLocation);
+                    uint8_t powerState = (uint8_t) e->GetByteField(routingInfo,
+                            fPowerState);
+                    tNFA_HANDLE eeHandle = SecureElement::getInstance().getEseHandleFromGenericId(location);
+
+                    ALOGE("com_android_nfc_NfcManager_doSetMultiSERoutingTable()  ROUTE_TECHNOLOGY ==> \
+                        routeDetailBytes=%02x  , location=%02x , powerState=%02x ",
+                        routeDetailBytes[0],location,powerState);
+
+                    if (0x01 == len)
+                    {
+                        jint technologies_switch_on;
+                        jint technologies_switch_off;
+                        jint technologies_battery_off;
+
+                        if (powerState & 0x01)
+                            technologies_switch_on = routeDetailBytes[0];
+                        if (powerState & 0x02)
+                            technologies_switch_off = routeDetailBytes[0];
+                        if (powerState & 0x04)
+                            technologies_battery_off = routeDetailBytes[0];
+                        {
+                            SyncEventGuard guard (SecureElement::getInstance().mRoutingEvent);
+                            tNFA_STATUS status =  NFA_EeSetDefaultTechRouting(eeHandle,technologies_switch_on,
+                                    technologies_switch_off,
+                                    technologies_battery_off);
+                            if(status == NFA_STATUS_OK)
+                            {
+                                SecureElement::getInstance().mRoutingEvent.wait ();
+                                result = true;
+                            }
+                        }
+                    }
+                    /********Release elements*********/
+                    e->ReleaseByteArrayElements(routeDetailByteArr,
+                            (jbyte *) routeDetailBytes, JNI_ABORT);
+
+
+                }
+            }
+            else if (/*ROUTE_DEFAULT*/0 == routeType)
+            {
+                ALOGE("com_android_nfc_NfcManager_doSetMultiSERoutingTable ROUTE_DEFAULT.");
+                uint8_t location = (uint8_t) e->GetByteField(routingInfo,
+                        fLocation);
+                uint8_t powerState = (uint8_t) e->GetByteField(routingInfo,
+                        fPowerState);
+                tNFA_HANDLE eeHandle = SecureElement::getInstance().getEseHandleFromGenericId(location);
+
+                ALOGE("com_android_nfc_NfcManager_doSetMultiSERoutingTable()  ROUTE_DEFAULT ==>\
+                    location=%02x , powerState=%02x ",location,powerState);
+
+                jint protocols_switch_on;
+                jint protocols_switch_off;
+                jint protocols_battery_off;
+
+                if (powerState & 0x01)
+                    protocols_switch_on = NFA_PROTOCOL_MASK_ISO_DEP;
+                if (powerState & 0x02)
+                    protocols_switch_off = NFA_PROTOCOL_MASK_ISO_DEP;
+                if (powerState & 0x04)
+                    protocols_battery_off = NFA_PROTOCOL_MASK_ISO_DEP;
+                {
+                    SyncEventGuard guard (SecureElement::getInstance().mRoutingEvent);
+                    tNFA_STATUS status =  NFA_EeSetDefaultProtoRouting(eeHandle,protocols_switch_on,
+                            protocols_switch_off,
+                            protocols_battery_off);
+                    if(status == NFA_STATUS_OK)
+                    {
+                        SecureElement::getInstance().mRoutingEvent.wait ();
+                        result = true;
+                    }
+                }
+            } else
+            {
+                ALOGE("com_android_nfc_NfcManager_doSetMultiSERoutingTable INVALID ROUTE_TYPE - IGNORING...");
+            }
+        }
+
+    }
+TheEnd:
+    NFA_EeUpdateNow (); //apply new routes now
+
+    // Actually start discovery.
+    startRfDiscovery (true);
+
+    PowerSwitch::getInstance ().setModeOn (PowerSwitch::DISCOVERY);
+
+    ALOGD ("%s: exit", __FUNCTION__);
+
+    return result;
+}
+#endif
 
 
 /*******************************************************************************
@@ -1509,7 +1998,13 @@ static void nfcManager_doDeselectSecureElement(JNIEnv *e, jobject o)
     //then turn off the sec elems
     if (SecureElement::getInstance().isBusy() == false)
 #ifdef NXP_EXT
+    {
         stat = SecureElement::getInstance().deactivate (seId);
+        if(stat == false)
+        {
+            sIsSecElemSelected++;
+        }
+    }
 #else
         SecureElement::getInstance().deactivate (0xABCDEF);
 #endif
@@ -1796,6 +2291,29 @@ static JNINativeMethod gMethods[] =
     {"doDeselectSecureElement", "(I)V",
             (void *)nfcManager_doDeselectSecureElement},
 
+    {"GetDefaultSE", "()I",
+            (void *)nfcManager_GetDefaultSE},
+
+    {"getSecureElementTechList", "()[I",
+            (void *)nfcManager_getSecureElementTechList},
+
+    {"getSecureElementUid", "()[B",
+            (void *)nfcManager_getSecureElementUid},
+
+     {"setEmvCoPollProfile", "(ZI)I",
+             (void *)nfcManager_setEmvCoPollProfile},
+
+/*MultiSE*/
+    { "doSetMultiSERoutingTable","([Landroid/nfc/MultiSERoutingInfo;)Z",
+            (void *) com_android_nfc_NfcManager_doSetMultiSERoutingTable },
+/*MultiSE*/
+
+    {"getChipVer", "()I",
+             (void *)nfcManager_getChipVer},
+
+    {"JCOSDownload", "()I",
+            (void *)nfcManager_doJcosDownload},
+
 #else
     {"doSelectSecureElement", "()V",
             (void *)nfcManager_doSelectSecureElement},
@@ -1989,6 +2507,70 @@ void startStopPolling (bool isStartPolling)
 }
 
 #ifdef NXP_EXT
+
+/*******************************************************************************
+**
+** Function:        nfcManager_getChipVer
+**
+** Description:     Gets the chip version.
+**                  e: JVM environment.
+**                  o: Java object.
+**
+** Returns:         None      0x00
+**                  PN547C2   0x01
+**                  PN65T     0x02 .
+**
+*******************************************************************************/
+static int nfcManager_getChipVer(JNIEnv* e, jobject o)
+{
+    ALOGD ("%s: enter", __FUNCTION__);
+    unsigned long num =0;
+
+    GetNxpNumValue(NAME_NXP_NFC_CHIP, (void *)&num, sizeof(num));
+    ALOGD ("%d: nfcManager_getChipVer", num);
+    return num;
+}
+/*******************************************************************************
+**
+** Function:        nfcManager_doJcosDownload
+**
+** Description:     start jcos download.
+**                  e: JVM environment.
+**                  o: Java object.
+**
+** Returns:         True if ok.
+**
+*******************************************************************************/
+static int nfcManager_doJcosDownload(JNIEnv* e, jobject o)
+{
+    ALOGD ("%s: enter", __FUNCTION__);
+    tNFA_STATUS status = NFA_STATUS_FAILED;
+    bool stat = false;
+
+    if (sRfEnabled) {
+        // Stop RF Discovery if we were polling
+        startRfDiscovery (false);
+    }
+    //Get the EE Info
+    stat = JcopOsDwnld::getInstance().IsWiredMode_Enable();
+    if(stat != true)
+    {
+        ALOGE("%s: Wired mode is not enabled", __FUNCTION__);
+    }
+    else
+    {
+        ALOGE("%s: start JcopOs_Download", __FUNCTION__);
+        JcopOsDwnld::getInstance().open();
+        status = JcopOsDwnld::getInstance().JcopOs_Download();
+        JcopOsDwnld::getInstance().close();
+    }
+    startRfDiscovery (true);
+
+TheEnd:
+    ALOGD ("%s: exit; status =0x%X", __FUNCTION__,status);
+    return status;
+}
+
 bool isDiscoveryStarted()
 {
     return sRfEnabled;

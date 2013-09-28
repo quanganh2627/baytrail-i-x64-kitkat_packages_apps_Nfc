@@ -982,7 +982,7 @@ void NfcTag::fillNativeNfcTagMembers5 (JNIEnv* e, jclass tag_cls, jobject tag, t
         len = mTechParams [0].param.pk.uid_len;
         uid.reset(e->NewByteArray(len));
         e->SetByteArrayRegion(uid.get(), 0, len,
-                (jbyte*) (mTechParams [0].param.pk.uid));
+                (jbyte*) &mTechParams [0].param.pk.uid);
         break;
 
     case NFC_DISCOVERY_TYPE_POLL_A:
