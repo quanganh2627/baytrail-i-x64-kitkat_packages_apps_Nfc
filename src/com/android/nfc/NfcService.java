@@ -1150,8 +1150,28 @@ public class NfcService implements DeviceHostListener {
                 try {
                     if (!mDeviceHost.initialize()) {
                         Log.w(TAG, "Error enabling NFC");
-                        updateState(NfcAdapter.STATE_OFF);
-                        return false;
+
+                        if (mNxp_PN547) {
+                            String clfVersion = SystemProperties.get("nfc.nxp.chip");
+                            if (!(clfVersion.matches("(?i).*pn547*"))) {
+                                /**
+                                 * Nfc chip is not detected here.
+                                 * We don't want the user to be able to do NFC ON.
+                                 * So we send a toast, and keep the NFC greyed out at UI level.
+                                 */
+                                mToastHandler.showToast("NFC Chip not detected", Toast.LENGTH_SHORT);
+                                Log.e(TAG, "NFC Chip not detected, NFC not functionnal");
+                                return false;
+                            }
+                            else {
+                                updateState(NfcAdapter.STATE_OFF);
+                                return false;
+                            }
+                        }
+                        else {
+                            updateState(NfcAdapter.STATE_OFF);
+                            return false;
+                        }
                     }
                 } finally {
                     mRoutingWakeLock.release();
