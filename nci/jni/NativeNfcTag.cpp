@@ -113,13 +113,67 @@ static jboolean     sCheckNdefWaitingForComplete = JNI_FALSE;
 static int          sCountTagAway = 0; //count the consecutive number of presence-check failures
 static tNFA_STATUS  sMakeReadonlyStatus = NFA_STATUS_FAILED;
 static jboolean     sMakeReadonlyWaitingForComplete = JNI_FALSE;
-#ifdef NXP_EXT
-static int          doReconnectFlag = 0x00;
-#endif
-
 
 static int reSelect (tNFA_INTF_TYPE rfInterface);
 static bool switchRfInterface(tNFA_INTF_TYPE rfInterface);
+
+#ifdef NXP_EXT
+static IntervalTimer sPresenceCheckTimer; // timer used for presence cmd notification timeout.
+static int          doReconnectFlag = 0x00;
+static SyncEvent    sNfaVSCResponseEvent;
+static SyncEvent    sNfaVSCNotificationEvent;
+static bool         sIsTagInField;
+static bool         sVSCRsp;
+
+static void nfaVSCCallback(UINT8 event, UINT16 param_len, UINT8 *p_param);
+static void nfaVSCNtfCallback(UINT8 event, UINT16 param_len, UINT8 *p_param);
+static void presenceCheckTimerProc (union sigval);
+
+static void nfaVSCNtfCallback(UINT8 event, UINT16 param_len, UINT8 *p_param)
+{
+    ALOGD ("%s", __FUNCTION__);
+    if (param_len == 4 && p_param[3] == 0x01)
+    {
+        sIsTagInField = true;
+    }
+    else
+    {
+        sIsTagInField = false;
+    }
+
+    ALOGD ("%s is Tag in Field = %d", __FUNCTION__, sIsTagInField);
+    usleep(100*1000);
+    SyncEventGuard guard (sNfaVSCNotificationEvent);
+    sNfaVSCNotificationEvent.notifyOne ();
+}
+
+static void nfaVSCCallback(UINT8 event, UINT16 param_len, UINT8 *p_param)
+{
+    ALOGD ("%s", __FUNCTION__);
+    ALOGD ("%s param_len = %d ", __FUNCTION__, param_len);
+    ALOGD ("%s p_param = %d ", __FUNCTION__, *p_param);
+
+    if (param_len == 4 && p_param[3] == 0x00)
+    {
+        ALOGD ("%s sVSCRsp = true", __FUNCTION__);
+
+        sVSCRsp = true;
+    }
+    else
+    {
+        ALOGD ("%s sVSCRsp = false", __FUNCTION__);
+
+        sVSCRsp = false;
+    }
+
+    ALOGD ("%s sVSCRsp = %d", __FUNCTION__, sVSCRsp);
+
+
+    SyncEventGuard guard (sNfaVSCResponseEvent);
+    sNfaVSCResponseEvent.notifyOne ();
+}
+#endif
+
 
 
 /*******************************************************************************
@@ -744,6 +798,11 @@ static jint nativeNfcTag_doReconnect (JNIEnv*, jobject)
     int retCode = NFCSTATUS_SUCCESS;
     NfcTag& natTag = NfcTag::getInstance ();
 
+#ifdef NXP_EXT
+    UINT8* uid;
+    UINT32 uid_len;
+    natTag.getTypeATagUID(&uid,&uid_len);
+#endif
     if (natTag.getActivationState() != NfcTag::Active)
     {
         ALOGE ("%s: tag already deactivated", __FUNCTION__);
@@ -757,7 +816,66 @@ static jint nativeNfcTag_doReconnect (JNIEnv*, jobject)
         ALOGD ("%s: fake out reconnect for Kovio", __FUNCTION__);
         goto TheEnd;
     }
+#ifdef NXP_EXT
+    // special case for TypeB and TypeA random UID
+    if ((natTag.mTechLibNfcTypes[0] == NFA_PROTOCOL_ISO_DEP &&
+            true == natTag.isTypeBTag()) ||
+            (NfcTag::getInstance().mTechLibNfcTypes[0] == NFA_PROTOCOL_ISO_DEP &&
+            uid_len > 0 && uid[0] == 0x08))
+    {
+        ALOGD ("%s: reconnect for TypeB / TypeA random uid", __FUNCTION__);
+        sPresenceCheckTimer.set(500, presenceCheckTimerProc);
 
+        tNFC_STATUS stat = NFA_RegVSCback (true,nfaVSCNtfCallback); //Register CallBack for VS NTF
+        if (NFA_STATUS_OK != stat)
+        {
+            retCode = 0x01;
+            goto TheEnd;
+        }
+
+        SyncEventGuard guard (sNfaVSCResponseEvent);
+        stat = NFA_SendVsCommand (0x11,0x00,NULL,nfaVSCCallback);
+        if (NFA_STATUS_OK == stat)
+        {
+            ALOGD ("%s: reconnect for TypeB - wait for NFA VS command to finish", __FUNCTION__);
+            sNfaVSCResponseEvent.wait(); //wait for NFA VS command to finish
+            ALOGD ("%s: reconnect for TypeB - Got RSP", __FUNCTION__);
+        }
+
+        if (false == sVSCRsp)
+        {
+            retCode = 0x01;
+        }
+        else
+        {
+            {
+                ALOGD ("%s: reconnect for TypeB - wait for NFA VS NTF to come", __FUNCTION__);
+                SyncEventGuard guard (sNfaVSCNotificationEvent);
+                sNfaVSCNotificationEvent.wait(); // wait for NFA VS NTF to come
+                ALOGD ("%s: reconnect for TypeB - GOT NFA VS NTF", __FUNCTION__);
+                sPresenceCheckTimer.kill();
+            }
+
+            if (false == sIsTagInField)
+            {
+                retCode = STATUS_CODE_TARGET_LOST;
+            }
+            else
+            {
+                retCode = 0x00;
+            }
+        }
+
+        stat = NFA_RegVSCback (false,nfaVSCNtfCallback); // DeRegister CallBack for VS NTF
+        if (NFA_STATUS_OK != stat)
+        {
+            retCode = 0x01;
+        }
+        ALOGD ("%s: reconnect for TypeB - return", __FUNCTION__);
+
+        goto TheEnd;
+    }
+#endif
     // this is only supported for type 2 or 4 (ISO_DEP) tags
     if (natTag.mTechLibNfcTypes[0] == NFA_PROTOCOL_ISO_DEP)
         retCode = reSelect(NFA_INTERFACE_ISO_DEP);
@@ -1389,11 +1507,16 @@ static jboolean nativeNfcTag_doPresenceCheck (JNIEnv*, jobject)
     ALOGD ("%s", __FUNCTION__);
     tNFA_STATUS status = NFA_STATUS_OK;
     jboolean isPresent = JNI_FALSE;
+#ifdef NXP_EXT
+    UINT8* uid;
+    UINT32 uid_len;
+    NfcTag::getInstance().getTypeATagUID(&uid,&uid_len);
+#endif
 
     // Special case for Kovio.  The deactivation would have already occurred
     // but was ignored so that normal tag opertions could complete.  Now we
     // want to process as if the deactivate just happened.
-    if (NfcTag::getInstance ().mTechList [0] == TARGET_TYPE_KOVIO_BARCODE)
+    if (NfcTag::getInstance().mTechList [0] == TARGET_TYPE_KOVIO_BARCODE)
     {
         ALOGD ("%s: Kovio, force deactivate handling", __FUNCTION__);
         tNFA_DEACTIVATED deactivated = {NFA_DEACTIVATE_TYPE_IDLE};
@@ -1418,7 +1541,55 @@ static jboolean nativeNfcTag_doPresenceCheck (JNIEnv*, jobject)
         ALOGD ("%s: tag already deactivated", __FUNCTION__);
         return JNI_FALSE;
     }
+#ifdef NXP_EXT
+    // special case for TypeB and TypeA random uid
+    if ((NfcTag::getInstance().mTechLibNfcTypes[0] == NFA_PROTOCOL_ISO_DEP &&
+            true == NfcTag::getInstance().isTypeBTag()) ||
+            (NfcTag::getInstance ().mTechLibNfcTypes[0] == NFA_PROTOCOL_ISO_DEP &&
+            uid_len > 0 && uid[0] == 0x08))
+    {
+        ALOGD ("%s: presence check for TypeB / TypeA random uid", __FUNCTION__);
+        sPresenceCheckTimer.set(500, presenceCheckTimerProc);
 
+        tNFC_STATUS stat = NFA_RegVSCback (true,nfaVSCNtfCallback); // Register CallBack for VS NTF
+        if (NFA_STATUS_OK != stat)
+        {
+            goto TheEnd;
+        }
+
+        SyncEventGuard guard (sNfaVSCResponseEvent);
+        stat = NFA_SendVsCommand (0x11,0x00,NULL,nfaVSCCallback);
+        if (NFA_STATUS_OK == stat)
+        {
+            ALOGD ("%s: presence check for TypeB - wait for NFA VS RSP to come", __FUNCTION__);
+            sNfaVSCResponseEvent.wait(); // wait for NFA VS command to finish
+            ALOGD ("%s: presence check for TypeB - GOT NFA VS RSP", __FUNCTION__);
+        }
+
+        if (true == sVSCRsp)
+        {
+            {
+                SyncEventGuard guard (sNfaVSCNotificationEvent);
+                ALOGD ("%s: presence check for TypeB - wait for NFA VS NTF to come", __FUNCTION__);
+                sNfaVSCNotificationEvent.wait(); // wait for NFA VS NTF to come
+                ALOGD ("%s: presence check for TypeB - GOT NFA VS NTF", __FUNCTION__);
+                sPresenceCheckTimer.kill();
+            }
+
+            if (false == sIsTagInField)
+            {
+                isPresent = JNI_FALSE;
+            }
+            else
+            {
+                isPresent =  JNI_TRUE;
+            }
+        }
+        NFA_RegVSCback (false,nfaVSCNtfCallback); // DeRegister CallBack for VS NTF
+        ALOGD ("%s: presence check for TypeB - return", __FUNCTION__);
+        goto TheEnd;
+    }
+#endif
     if (sem_init (&sPresenceCheckSem, 0, 0) == -1)
     {
         ALOGE ("%s: semaphore creation failed (errno=0x%08x)", __FUNCTION__, errno);
@@ -1443,9 +1614,13 @@ static jboolean nativeNfcTag_doPresenceCheck (JNIEnv*, jobject)
         ALOGE ("Failed to destroy check NDEF semaphore (errno=0x%08x)", errno);
     }
 
+#ifdef NXP_EXT
+    TheEnd:
+#endif
     if (isPresent == JNI_FALSE)
         ALOGD ("%s: tag absent ????", __FUNCTION__);
     return isPresent;
+
 }
 
 
@@ -1747,7 +1922,24 @@ void nativeNfcTag_deregisterNdefTypeHandler ()
     sNdefTypeHandlerHandle = NFA_HANDLE_INVALID;
 }
 
-
+#ifdef NXP_EXT
+/*******************************************************************************
+**
+** Function:        presenceCheckTimerProc
+**
+** Description:     Callback function for presence check timer.
+**
+** Returns:         None
+**
+*******************************************************************************/
+static void presenceCheckTimerProc (union sigval)
+{
+    ALOGD ("%s", __FUNCTION__);
+    sIsTagInField = false;
+    SyncEventGuard guard (sNfaVSCNotificationEvent);
+    sNfaVSCNotificationEvent.notifyOne();
+}
+#endif
 /*****************************************************************************
 **
 ** JNI functions for Android 4.0.3

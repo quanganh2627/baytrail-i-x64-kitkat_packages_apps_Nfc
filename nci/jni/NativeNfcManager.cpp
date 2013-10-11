@@ -102,7 +102,11 @@ namespace android
 
 namespace android
 {
+#ifdef NXP_EXT
+    int                     gGeneralTransceiveTimeout = 8000;
+#else
     int                     gGeneralTransceiveTimeout = 1000;
+#endif
     jmethodID               gCachedNfcManagerNotifyNdefMessageListeners;
     jmethodID               gCachedNfcManagerNotifyTransactionListeners;
     jmethodID               gCachedNfcManagerNotifyLlcpLinkActivation;
@@ -118,6 +122,8 @@ namespace android
     jmethodID               gCachedNfcManagerNotifySWPReaderRequested;
     jmethodID               gCachedNfcManagerNotifySWPReaderActivated;
     jmethodID               gCachedNfcManagerNotifySWPReaderDeActivated;
+    jmethodID               gCachedNfcManagerNotifyConnectivityListeners;
+    jmethodID               gCachedNfcManagerNotifyEmvcoMultiCardDetectedListeners;
     const char*             gNativeNfcCEFromHostClassName             = "com/android/nfc/dhimpl/NativeNfcCEFromHost";
 #endif
     const char*             gNativeP2pDeviceClassName                 = "com/android/nfc/dhimpl/NativeP2pDevice";
@@ -192,7 +198,11 @@ static void nfaConnectionCallback (UINT8 event, tNFA_CONN_EVT_DATA *eventData);
 static void nfaDeviceManagementCallback (UINT8 event, tNFA_DM_CBACK_DATA *eventData);
 static bool isPeerToPeer (tNFA_ACTIVATED& activated);
 static bool isListenMode(tNFA_ACTIVATED& activated);
-
+#ifdef NXP_EXT
+static int nfcManager_getChipVer(JNIEnv* e, jobject o);
+static int nfcManager_doJcosDownload(JNIEnv* e, jobject o);
+bool isDiscoveryStarted();
+#endif
 static UINT16 sCurrentConfigLen;
 static UINT8 sConfig[256];
 /////////////////////////////////////////////////////////////
@@ -635,8 +645,35 @@ static jboolean nfcManager_initNativeStruc (JNIEnv* e, jobject o)
     /* Initialize native cached references */
     gCachedNfcManagerNotifyNdefMessageListeners = e->GetMethodID(cls.get(),
             "notifyNdefMessageListeners", "(Lcom/android/nfc/dhimpl/NativeNfcTag;)V");
+#ifdef NXP_EXT
+
+    gCachedNfcManagerNotifyTransactionListeners = e->GetMethodID(cls.get(),
+            "notifyTransactionListeners", "([B[BI)V");
+
+    gCachedNfcManagerNotifyConnectivityListeners = e->GetMethodID(cls.get(),
+            "notifyConnectivityListeners", "(I)V");
+
+    gCachedNfcManagerNotifyEmvcoMultiCardDetectedListeners = e->GetMethodID(cls.get(),
+            "notifyEmvcoMultiCardDetectedListeners", "()V");
+
+    gCachedNfcManagerNotifyCEFromHostActivated = e->GetMethodID (cls.get(),
+            "notifyCEFromHostActivated", "()V");
+
+    gCachedNfcManagerNotifyCEFromHostDeActivated = e->GetMethodID (cls.get(),
+            "notifyCEFromHostDeActivated", "()V");
+
+    gCachedNfcManagerNotifySWPReaderRequested = e->GetMethodID (cls.get(),
+            "notifySWPReaderRequested", "(ZZ)V");
+
+    gCachedNfcManagerNotifySWPReaderActivated = e->GetMethodID (cls.get(),
+            "notifySWPReaderActivated", "()V");
+
+    gCachedNfcManagerNotifySWPReaderDeActivated = e->GetMethodID (cls.get(),
+            "notifyonSWPReaderDeActivated", "()V");
+#else
     gCachedNfcManagerNotifyTransactionListeners = e->GetMethodID(cls.get(),
             "notifyTransactionListeners", "([B)V");
+#endif
     gCachedNfcManagerNotifyLlcpLinkActivation = e->GetMethodID(cls.get(),
             "notifyLlcpLinkActivation", "(Lcom/android/nfc/dhimpl/NativeP2pDevice;)V");
     gCachedNfcManagerNotifyLlcpLinkDeactivated = e->GetMethodID(cls.get(),
@@ -662,22 +699,7 @@ static jboolean nfcManager_initNativeStruc (JNIEnv* e, jobject o)
 
     sCachedNfcManagerNotifySeEmvCardRemoval =  e->GetMethodID(cls.get(),
             "notifySeEmvCardRemoval", "()V");
-#ifdef NXP_EXT
-    gCachedNfcManagerNotifyCEFromHostActivated = e->GetMethodID (cls.get(),
-            "notifyCEFromHostActivated", "()V");
 
-    gCachedNfcManagerNotifyCEFromHostDeActivated = e->GetMethodID (cls.get(),
-            "notifyCEFromHostDeActivated", "()V");
-
-    gCachedNfcManagerNotifySWPReaderRequested = e->GetMethodID (cls.get(),
-            "notifySWPReaderRequested", "(ZZ)V");
-
-    gCachedNfcManagerNotifySWPReaderActivated = e->GetMethodID (cls.get(),
-            "notifySWPReaderActivated", "()V");
-
-    gCachedNfcManagerNotifySWPReaderDeActivated = e->GetMethodID (cls.get(),
-            "notifyonSWPReaderDeActivated", "()V");
-#endif
     if (nfc_jni_cache_object(e, gNativeNfcTagClassName, &(nat->cached_NfcTag)) == -1)
     {
         ALOGE ("%s: fail cache NativeNfcTag", __FUNCTION__);
@@ -825,6 +847,13 @@ void nfaDeviceManagementCallback (UINT8 dmEvent, tNFA_DM_CBACK_DATA* eventData)
     case NFA_DM_PWR_MODE_CHANGE_EVT:
         PowerSwitch::getInstance ().deviceManagementCallback (dmEvent, eventData);
         break;
+
+#ifdef NXP_EXT
+    case NFA_DM_EMVCO_PCD_COLLISION_EVT:
+        ALOGE("STATUS_EMVCO_PCD_COLLISION - Multiple card detected");
+        SecureElement::getInstance().notifyEmvcoMultiCardDetectedListeners();
+        break;
+#endif
 
     default:
         ALOGD ("%s: unhandled event", __FUNCTION__);
@@ -1285,6 +1314,9 @@ static jboolean nfcManager_doDeinitialize (JNIEnv*, jobject)
     sIsDisabling = true;
     pn544InteropAbortNow ();
     SecureElement::getInstance().finalize ();
+#ifdef NXP_EXT
+    JcopOsDwnld::getInstance().finalize();
+#endif
 
     if (sIsNfaEnabled)
     {
@@ -1805,9 +1837,9 @@ static jboolean com_android_nfc_NfcManager_doSetMultiSERoutingTable(JNIEnv *e, j
 
                     if (0x01 == len)
                     {
-                        jint protocols_switch_on;
-                        jint protocols_switch_off;
-                        jint protocols_battery_off;
+                        jint protocols_switch_on = 0;
+                        jint protocols_switch_off = 0;
+                        jint protocols_battery_off = 0;
 
                         if (powerState & 0x01)
                             protocols_switch_on = routeDetailBytes[0];
@@ -1858,9 +1890,9 @@ static jboolean com_android_nfc_NfcManager_doSetMultiSERoutingTable(JNIEnv *e, j
 
                     if (0x01 == len)
                     {
-                        jint technologies_switch_on;
-                        jint technologies_switch_off;
-                        jint technologies_battery_off;
+                        jint technologies_switch_on = 0;
+                        jint technologies_switch_off = 0;
+                        jint technologies_battery_off = 0;
 
                         if (powerState & 0x01)
                             technologies_switch_on = routeDetailBytes[0];

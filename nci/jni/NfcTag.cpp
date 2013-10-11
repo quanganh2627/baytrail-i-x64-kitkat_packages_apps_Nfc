@@ -1421,3 +1421,49 @@ void NfcTag::connectionEventHandler (UINT8 event, tNFA_CONN_EVT_DATA* data)
         }
     }
 }
+
+#ifdef NXP_EXT
+/*******************************************************************************
+**
+** Function:        isTypeBTag
+**
+** Description:     Whether the currently activated tag is Type B.
+**
+** Returns:         True if tag is Type B.
+**
+*******************************************************************************/
+bool NfcTag::isTypeBTag()
+{
+    static const char fn [] = "NfcTag::isTypeBTag";
+    bool retval = false;
+
+    for (int i = 0; i < mNumTechList; i++)
+    {
+        if ((mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_B) ||
+             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_B))
+        {
+            retval = true;
+            break;
+        }
+    }
+    ALOGD ("%s: return=%u", fn, retval);
+    return retval;
+}
+
+void NfcTag::getTypeATagUID(UINT8 **uid, UINT32 *len)
+{
+    for (int i =0; i < mNumTechList; i++)
+    {
+        if ((mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_A) ||
+             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_A))
+        {
+            *len = mTechParams [i].param.pa.nfcid1_len;
+            *uid = mTechParams [0].param.pa.nfcid1;
+            return;
+        }
+    }
+
+    *len = 0;
+    *uid = NULL;
+}
+#endif

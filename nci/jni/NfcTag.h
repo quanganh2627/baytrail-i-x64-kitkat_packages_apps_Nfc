@@ -245,6 +245,29 @@ public:
     *******************************************************************************/
     bool isNdefDetectionTimedOut ();
 
+#ifdef NXP_EXT
+    /*******************************************************************************
+    **
+    ** Function:        isTypeBTag
+    **
+    ** Description:     Whether the currently activated tag is Type B.
+    **
+    ** Returns:         True if tag is Type B.
+    **
+    *******************************************************************************/
+    bool isTypeBTag ();
+
+    /*******************************************************************************
+    **
+    ** Function:        getTypeATagUID
+    **
+    ** Description:     Get the UID of TypeA Tag.
+    **
+    ** Returns:         UID in case of TypeA Tag otherwise NULL..
+    **
+    *******************************************************************************/
+    void getTypeATagUID(UINT8 **uid, UINT32 *len);
+#endif
 private:
     nfc_jni_native_data* mNativeData;
     ActivationState mActivationState;
