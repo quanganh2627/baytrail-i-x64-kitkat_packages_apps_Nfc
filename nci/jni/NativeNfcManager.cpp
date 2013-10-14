@@ -1931,9 +1931,9 @@ static jboolean com_android_nfc_NfcManager_doSetMultiSERoutingTable(JNIEnv *e, j
                 ALOGE("com_android_nfc_NfcManager_doSetMultiSERoutingTable()  ROUTE_DEFAULT ==>\
                     location=%02x , powerState=%02x ",location,powerState);
 
-                jint protocols_switch_on;
-                jint protocols_switch_off;
-                jint protocols_battery_off;
+                jint protocols_switch_on = 0;
+                jint protocols_switch_off = 0;
+                jint protocols_battery_off = 0;
 
                 if (powerState & 0x01)
                     protocols_switch_on = NFA_PROTOCOL_MASK_ISO_DEP;
