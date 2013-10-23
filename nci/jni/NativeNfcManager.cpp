@@ -51,7 +51,7 @@
 #include <cutils/properties.h>
 #include "CEFromHost.h"
 #include "HciRFParams.h"
-#include "JcopOsDownload.h"
+#include "DwpChannel.h"
 #endif
 
 extern "C"
@@ -65,6 +65,10 @@ extern "C"
 #ifdef NXP_EXT
     #include "phNxpExtns.h"
     #include "phNxpConfig.h"
+#endif
+#ifdef NFC_NXP_P61
+    #include "JcDnld.h"
+    #include "IChannel.h"
 #endif
 }
 
@@ -202,6 +206,10 @@ static bool isListenMode(tNFA_ACTIVATED& activated);
 static int nfcManager_getChipVer(JNIEnv* e, jobject o);
 static int nfcManager_doJcosDownload(JNIEnv* e, jobject o);
 bool isDiscoveryStarted();
+#endif
+#ifdef NFC_NXP_P61
+static void DWPChannel_init(IChannel_t *DWP);
+IChannel_t Dwp;
 #endif
 static UINT16 sCurrentConfigLen;
 static UINT8 sConfig[256];
@@ -923,7 +931,6 @@ static jboolean nfcManager_doInitialize (JNIEnv* e, jobject o)
                 SecureElement::getInstance().initialize (getNative(e, o));
 #ifdef NXP_EXT
                 CEFromHost::getInstance().initialize(getNative(e, o));
-                JcopOsDwnld::getInstance().initialize (getNative(e, o));
                 HciRFParams::getInstance().initialize ();
                 sIsSecElemSelected = (SecureElement::getInstance().getActualNumEe() - 1 );
                 sIsSecElemDetected = sIsSecElemSelected;
@@ -1011,6 +1018,11 @@ TheEnd:
 static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
 {
     tNFA_TECHNOLOGY_MASK tech_mask = DEFAULT_TECH_MASK;
+#ifdef NXP_EXT
+    unsigned long num = 0;
+    unsigned long p2p_listen_mask = 0;
+    tNFA_HANDLE handle = NFA_HANDLE_INVALID;
+#endif
     struct nfc_jni_native_data *nat = getNative(e, o);
 
     if (nat)
@@ -1035,7 +1047,45 @@ static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
         startRfDiscovery(false);
     }
 
+#ifdef NXP_EXT
     {
+        tNFA_STATUS status = NFA_STATUS_OK;
+        UINT8 sel_info = 0x60;
+        UINT8 lf_protocol = 0x02;
+        {
+            SyncEventGuard guard (android::sNfaSetConfigEvent);
+            status = NFA_SetConfig(NCI_PARAM_ID_LF_PROTOCOL, sizeof(UINT8), &lf_protocol);
+            if (status == NFA_STATUS_OK)
+                sNfaSetConfigEvent.wait ();
+            else
+                ALOGE ("%s: Could not able to configure lf_protocol", __FUNCTION__);
+        }
+
+        {
+            SyncEventGuard guard (android::sNfaSetConfigEvent);
+            status = NFA_SetConfig(NCI_PARAM_ID_LA_SEL_INFO, sizeof(UINT8), &sel_info);
+            if (status == NFA_STATUS_OK)
+                sNfaSetConfigEvent.wait ();
+            else
+                ALOGE ("%s: Could not able to configure sel_info", __FUNCTION__);
+        }
+    }
+
+    if ((GetNumValue(NAME_UICC_LISTEN_TECH_MASK, &num, sizeof(num))))
+    {
+        ALOGE ("%s:UICC_LISTEN_MASK=0x0%d;", __FUNCTION__, num);
+    }
+    if ((GetNumValue("P2P_LISTEN_TECH_MASK", &p2p_listen_mask, sizeof(p2p_listen_mask))))
+    {
+        ALOGE ("%s:P2P_LISTEN_TECH_MASK=0x0%d;", __FUNCTION__, p2p_listen_mask);
+    }
+
+    PeerToPeer::getInstance().enableP2pListening (false);
+    {
+        PeerToPeer::getInstance().setP2pListenMask(p2p_listen_mask);
+#else
+    {
+#endif
         SyncEventGuard guard (sNfaEnableDisablePollingEvent);
         stat = NFA_EnablePolling (tech_mask);
         if (stat == NFA_STATUS_OK)
@@ -1054,9 +1104,34 @@ static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
     // Start P2P listening if tag polling was enabled or the mask was 0.
     if (sDiscoveryEnabled || (tech_mask == 0))
     {
+#ifdef NXP_EXT
+        handle = SecureElement::getInstance().getEseHandleFromGenericId(SecureElement::UICC_ID);
+#endif
         ALOGD ("%s: Enable p2pListening", __FUNCTION__);
         PeerToPeer::getInstance().enableP2pListening (true);
+#ifdef NXP_EXT
+        {
+            SyncEventGuard guard (SecureElement::getInstance().mUiccListenEvent);
+            stat = NFA_CeConfigureUiccListenTech (handle, 0x00);
+            if (stat == NFA_STATUS_OK)
+            {
+                SecureElement::getInstance().mUiccListenEvent.wait ();
+            }
+            else
+                ALOGE ("fail to start UICC listen");
+        }
 
+        {
+            SyncEventGuard guard (SecureElement::getInstance().mUiccListenEvent);
+            stat = NFA_CeConfigureUiccListenTech (handle, (num & 0xC7));
+            if (stat == NFA_STATUS_OK)
+            {
+                SecureElement::getInstance().mUiccListenEvent.wait ();
+            }
+            else
+                ALOGE ("fail to start UICC listen");
+        }
+#endif
         //if NFC service has deselected the sec elem, then apply default routes
         if (!sIsSecElemSelected)
             stat = SecureElement::getInstance().routeToDefault ();
@@ -1085,6 +1160,11 @@ static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
 void nfcManager_disableDiscovery (JNIEnv*, jobject)
 {
     tNFA_STATUS status = NFA_STATUS_OK;
+#ifdef NXP_EXT
+    unsigned long num = 0;
+    unsigned long p2p_listen_mask =0;
+    tNFA_HANDLE handle = NFA_HANDLE_INVALID;
+#endif
     ALOGD ("%s: enter;", __FUNCTION__);
 
     pn544InteropAbortNow ();
@@ -1110,11 +1190,68 @@ void nfcManager_disableDiscovery (JNIEnv*, jobject)
             ALOGE ("%s: Failed to disable polling; error=0x%X", __FUNCTION__, status);
     }
 
+#ifdef NXP_EXT
+    if ((GetNumValue(NAME_UICC_LISTEN_TECH_MASK, &num, sizeof(num))))
+    {
+        ALOGE ("%s:UICC_LISTEN_MASK=0x0%d;", __FUNCTION__, num);
+    }
+    if ((GetNumValue("P2P_LISTEN_TECH_MASK", &p2p_listen_mask, sizeof(p2p_listen_mask))))
+    {
+        ALOGE ("%s:P2P_LISTEN_MASK=0x0%d;", __FUNCTION__, p2p_listen_mask);
+    }
+#endif
+
     PeerToPeer::getInstance().enableP2pListening (false);
 #ifdef NXP_EXT
+    {
+        UINT8 sel_info = 0x20;
+        UINT8 lf_protocol = 0x00;
+        {
+            SyncEventGuard guard (android::sNfaSetConfigEvent);
+            status = NFA_SetConfig(NCI_PARAM_ID_LA_SEL_INFO, sizeof(UINT8), &sel_info);
+            if (status == NFA_STATUS_OK)
+                sNfaSetConfigEvent.wait ();
+            else
+                ALOGE ("%s: Could not able to configure sel_info", __FUNCTION__);
+        }
+
+        {
+            SyncEventGuard guard (android::sNfaSetConfigEvent);
+            status = NFA_SetConfig(NCI_PARAM_ID_LF_PROTOCOL, sizeof(UINT8), &lf_protocol);
+            if (status == NFA_STATUS_OK)
+                sNfaSetConfigEvent.wait ();
+            else
+                ALOGE ("%s: Could not able to configure lf_protocol", __FUNCTION__);
+        }
+    }
+
     //To support card emulation in screen off state.
     if (SecureElement::getInstance().isBusy() == true )
     {
+        handle = SecureElement::getInstance().getEseHandleFromGenericId(SecureElement::UICC_ID);
+        {
+            SyncEventGuard guard (SecureElement::getInstance().mUiccListenEvent);
+            status = NFA_CeConfigureUiccListenTech (handle, 0x00);
+            if (status == NFA_STATUS_OK)
+            {
+                SecureElement::getInstance().mUiccListenEvent.wait ();
+            }
+            else
+                ALOGE ("fail to start UICC listen");
+        }
+
+        {
+            SyncEventGuard guard (SecureElement::getInstance().mUiccListenEvent);
+            status = NFA_CeConfigureUiccListenTech (handle, (num & 0x07));
+            if(status == NFA_STATUS_OK)
+            {
+                SecureElement::getInstance().mUiccListenEvent.wait ();
+            }
+            else
+                ALOGE ("fail to start UICC listen");
+        }
+
+        PeerToPeer::getInstance().setP2pListenMask(p2p_listen_mask & 0x05);
         PeerToPeer::getInstance().enableP2pListening (true);
         startRfDiscovery (true);
     }
@@ -1314,8 +1451,10 @@ static jboolean nfcManager_doDeinitialize (JNIEnv*, jobject)
     sIsDisabling = true;
     pn544InteropAbortNow ();
     SecureElement::getInstance().finalize ();
+
 #ifdef NXP_EXT
-    JcopOsDwnld::getInstance().finalize();
+    //Stop the discovery before calling NFA_Disable.
+    startRfDiscovery(false);
 #endif
 
     if (sIsNfaEnabled)
@@ -2564,6 +2703,25 @@ static int nfcManager_getChipVer(JNIEnv* e, jobject o)
 }
 /*******************************************************************************
 **
+** Function:        DWPChannel_init
+**
+** Description:     Initializes the DWP channel functions.
+**
+** Returns:         True if ok.
+**
+*******************************************************************************/
+#ifdef NFC_NXP_P61
+static void DWPChannel_init(IChannel_t *DWP)
+{
+    ALOGD ("%s: enter", __FUNCTION__);
+    DWP->open = open;
+    DWP->close = close;
+    DWP->transceive = transceive;
+    DWP->doeSE_Reset = doeSE_Reset;
+}
+#endif
+/*******************************************************************************
+**
 ** Function:        nfcManager_doJcosDownload
 **
 ** Description:     start jcos download.
@@ -2575,6 +2733,7 @@ static int nfcManager_getChipVer(JNIEnv* e, jobject o)
 *******************************************************************************/
 static int nfcManager_doJcosDownload(JNIEnv* e, jobject o)
 {
+#ifdef NFC_NXP_P61
     ALOGD ("%s: enter", __FUNCTION__);
     tNFA_STATUS status = NFA_STATUS_FAILED;
     bool stat = false;
@@ -2583,23 +2742,26 @@ static int nfcManager_doJcosDownload(JNIEnv* e, jobject o)
         // Stop RF Discovery if we were polling
         startRfDiscovery (false);
     }
-    //Get the EE Info
-    stat = JcopOsDwnld::getInstance().IsWiredMode_Enable();
+    DWPChannel_init(&Dwp);
+    stat = JCDNLD_Init(&Dwp);
     if(stat != true)
     {
-        ALOGE("%s: Wired mode is not enabled", __FUNCTION__);
+        ALOGE("%s: JCDND initialization failed", __FUNCTION__);
     }
     else
     {
         ALOGE("%s: start JcopOs_Download", __FUNCTION__);
-        JcopOsDwnld::getInstance().open();
-        status = JcopOsDwnld::getInstance().JcopOs_Download();
-        JcopOsDwnld::getInstance().close();
+        status = JCDNLD_StartDownload();
     }
+    stat = JCDNLD_DeInit();
+
     startRfDiscovery (true);
 
-TheEnd:
     ALOGD ("%s: exit; status =0x%X", __FUNCTION__,status);
+#else
+    tNFA_STATUS status = 0x0F;
+    ALOGD ("%s: No p61", __FUNCTION__);
+#endif
     return status;
 }
 

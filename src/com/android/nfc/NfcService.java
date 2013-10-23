@@ -1233,7 +1233,12 @@ public class NfcService implements DeviceHostListener {
                 mToastHandler.showToast("JcopOS is upto date", Toast.LENGTH_SHORT);
                 Log.i(TAG, "JCOS is already upto date - No update required");
             }
-            else {
+            else if (status == 0x0F){
+                mToastHandler.showToast("JcopOS download Feature is not available", Toast.LENGTH_SHORT);
+                Log.i(TAG, "JCOS download Failed");
+            }
+            else
+            {
                 mToastHandler.showToast("JcopOS download Failed", Toast.LENGTH_SHORT);
                 Log.i(TAG, "JCOS download Failed");
             }

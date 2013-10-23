@@ -2683,33 +2683,33 @@ bool SecureElement::routeToSecureElement ()
     }
 #ifdef NXP_EXT
     tNFA_EE_INFO* eeinfo = findEeByHandle(mActiveEeHandle);
-
-    if(eeinfo != NULL && eeinfo->la_protocol == 0x00 && eeinfo->lb_protocol != 0x00)
-    {
-        UINT8 val[] = {0x00};
-
-        ALOGD ("%s: No tech A on EE ", fn);
-
-        ALOGD ("%s: Configure TypeB", __FUNCTION__);
+    if (eeinfo!=NULL){
+        if (eeinfo->la_protocol == 0x00 && eeinfo->lb_protocol != 0x00 )
         {
-            SyncEventGuard guard (android::sNfaSetConfigEvent);
-            nfaStat = NFA_SetConfig(NCI_PARAM_ID_LA_SEL_INFO, sizeof(UINT8), val);
-            if (nfaStat == NFA_STATUS_OK)
-                android::sNfaSetConfigEvent.wait ();
-        }
-    }
-    else
-    {
-        UINT8 val[] = {0x60};
+            UINT8 val[] = {0x00};
 
-        ALOGD ("%s: tech A on EE ", fn);
+            ALOGD ("%s: No tech A on EE ", fn);
+
+            ALOGD ("%s: Configure TypeB", __FUNCTION__);
+            {
+                SyncEventGuard guard (android::sNfaSetConfigEvent);
+                nfaStat = NFA_SetConfig(NCI_PARAM_ID_LA_SEL_INFO, sizeof(UINT8), val);
+                if (nfaStat == NFA_STATUS_OK)
+                    android::sNfaSetConfigEvent.wait ();
+            }
+        }
+        else
         {
-            SyncEventGuard guard (android::sNfaSetConfigEvent);
-            nfaStat = NFA_SetConfig(NCI_PARAM_ID_LA_SEL_INFO, sizeof(UINT8), val);
-            if (nfaStat == NFA_STATUS_OK)
-                android::sNfaSetConfigEvent.wait ();
-        }
+            UINT8 val[] = {0x60};
 
+            ALOGD ("%s: tech A on EE ", fn);
+            {
+                SyncEventGuard guard (android::sNfaSetConfigEvent);
+                nfaStat = NFA_SetConfig(NCI_PARAM_ID_LA_SEL_INFO, sizeof(UINT8), val);
+                if (nfaStat == NFA_STATUS_OK)
+                    android::sNfaSetConfigEvent.wait ();
+            }
+        }
     }
 #endif
     ALOGD ("%s: exit; ok=%u", fn, retval);
