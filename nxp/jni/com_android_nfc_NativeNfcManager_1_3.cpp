@@ -816,7 +816,7 @@ void emergency_recovery(struct nfc_jni_native_data *nat)
             sleep(t);
         }
     }
-    if (TRUE == nat->isWiredMode)
+    if (NULL != nat && TRUE == nat->isWiredMode)
     {
         sleep(12);
     }
