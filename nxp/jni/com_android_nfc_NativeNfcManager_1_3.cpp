@@ -765,7 +765,7 @@ void emergency_recovery(struct nfc_jni_native_data *nat) {
             sleep(t);
         }
     }
-    if (TRUE == nat->isWiredMode)//davis_JBMR2
+    if (NULL != nat && TRUE == nat->isWiredMode)
     {
         sleep(22);
     }
