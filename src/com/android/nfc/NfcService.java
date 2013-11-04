@@ -1825,7 +1825,11 @@ public class NfcService implements DeviceHostListener {
                 Log.e(TAG, "activeSwp - ERROR_NOT_INITIALIZED");
                 return ErrorCodes.ERROR_NOT_INITIALIZED;
             }
-            mDeviceHost.doSelectSecureElement(0xABCDF0);
+            if(mNxp_PN547) {
+                mDeviceHost.doSelectSecureElement(UICC_ID_TYPE);
+            } else {
+                mDeviceHost.doSelectSecureElement(SECURE_ELEMENT_UICC_ID);
+            }
             return ErrorCodes.SUCCESS;
         }
 
