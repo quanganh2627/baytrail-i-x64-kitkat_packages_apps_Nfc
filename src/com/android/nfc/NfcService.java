@@ -3128,51 +3128,54 @@ public class NfcService implements DeviceHostListener {
                     if (Log.isLoggable(TAG, Log.DEBUG)) {
                         Log.d(TAG, "Card Emulation message");
                     }
+                    byte[] aid = null;
+
                     if (mNxp_PN547) {
                         Pair<byte[], Pair> transactionInfo = (Pair<byte[], Pair>) msg.obj;
                         Pair<byte[], Integer> dataSrcInfo =
                                 (Pair<byte[], Integer>) transactionInfo.second;
-                        {
-                            Log.d(TAG, "Event source " + dataSrcInfo.second);
 
-                            String evtSrc = "";
-                            if (dataSrcInfo.second == UICC_ID_TYPE) {
-                                evtSrc = NfcAdapter.UICC_ID;
-                            } else if (dataSrcInfo.second == SMART_MX_ID_TYPE) {
-                                evtSrc = NfcAdapter.SMART_MX_ID;
-                            }
-                            /* Send broadcast ordered */
-                            Intent TransactionIntent = new Intent();
-                            TransactionIntent.setAction(NfcAdapter.ACTION_TRANSACTION_DETECTED);
-                            TransactionIntent.putExtra(NfcAdapter.EXTRA_AID, transactionInfo.first);
-                            TransactionIntent.putExtra(NfcAdapter.EXTRA_DATA, dataSrcInfo.first);
-                            TransactionIntent.putExtra(NfcAdapter.EXTRA_SOURCE, evtSrc);
+                        aid = transactionInfo.first;
 
-                            if (Log.isLoggable(TAG, Log.DEBUG)) {
-                                Log.d(TAG, "Start Activity Card Emulation event");
-                            }
-                            mContext.sendBroadcast(TransactionIntent, NFC_PERM);
+                        Log.d(TAG, "Event source " + dataSrcInfo.second);
+
+                        String evtSrc = "";
+                        String se = null;
+
+                        if (dataSrcInfo.second == UICC_ID_TYPE) {
+                            evtSrc = NfcAdapter.UICC_ID;
+                            se = SMARTCARD_READER_UICC;
+                        } else if (dataSrcInfo.second == SMART_MX_ID_TYPE) {
+                            evtSrc = NfcAdapter.SMART_MX_ID;
+                            se = SMARTCARD_READER_ESE;
                         }
-                        /* Send broadcast */
-                        Intent aidIntent = new Intent();
-                        aidIntent.setAction(ACTION_AID_SELECTED);
-                        aidIntent.putExtra(EXTRA_AID, transactionInfo.first);
+
+                        /* Send broadcast ordered */
+                        Intent TransactionIntent = new Intent();
+                        TransactionIntent.setAction(NfcAdapter.ACTION_TRANSACTION_DETECTED);
+                        TransactionIntent.putExtra(NfcAdapter.EXTRA_AID, aid);
+                        TransactionIntent.putExtra(NfcAdapter.EXTRA_DATA, dataSrcInfo.first);
+                        TransactionIntent.putExtra(NfcAdapter.EXTRA_SOURCE, evtSrc);
+
                         if (Log.isLoggable(TAG, Log.DEBUG)) {
-                            Log.d(TAG, "Broadcasting " + ACTION_AID_SELECTED);
+                            Log.d(TAG, "Start Activity Card Emulation event");
                         }
-                            sendSeBroadcast(aidIntent);
+
+                        if(se != null) sendNfcEventBroadcast(TransactionIntent, aid, se);
+                        else sendNfcEventBroadcast(TransactionIntent, aid);
+
                     } else {
-                        byte[] aid = (byte[]) msg.obj;
-                        /* Send broadcast */
-                        Intent aidIntent = new Intent();
-                        aidIntent.setAction(ACTION_AID_SELECTED);
-                        aidIntent.putExtra(EXTRA_AID, aid);
-                        if (Log.isLoggable(TAG, Log.DEBUG)) {
-                            Log.d(TAG, "Broadcasting " + ACTION_AID_SELECTED);
-                        }
-                            sendNfcEventBroadcast(aidIntent, aid);
+                        aid = (byte[]) msg.obj;
                     }
 
+                    /* Send broadcast */
+                    Intent aidIntent = new Intent();
+                    aidIntent.setAction(ACTION_AID_SELECTED);
+                    aidIntent.putExtra(EXTRA_AID, aid);
+                    if (Log.isLoggable(TAG, Log.DEBUG)) {
+                        Log.d(TAG, "Broadcasting " + ACTION_AID_SELECTED);
+                    }
+                    sendNfcEventBroadcast(aidIntent, aid);
                     break;
 
                 case MSG_CARD_EMULATION_EXT:
@@ -3473,6 +3476,27 @@ public class NfcService implements DeviceHostListener {
         }
 
         private void sendNfcEventBroadcast(Intent intent, byte[] aid) {
+            // Select in which Se we need to retreive the rules
+            String se = null;
+
+            switch(mSelectedSeId) {
+                case SECURE_ELEMENT_UICC_ID:
+                case UICC_ID_TYPE:
+                    se = SMARTCARD_READER_UICC;
+                    break;
+                case SECURE_ELEMENT_SMX_ID:
+                case SMART_MX_ID_TYPE:
+                    se = SMARTCARD_READER_ESE;
+                    break;
+                default:
+                    Log.e(TAG, "Bad SE selected: " + mSelectedSeId);
+                    return;
+            }
+
+            sendNfcEventBroadcast(intent, aid, se);
+        }
+
+        private void sendNfcEventBroadcast(Intent intent, byte[] aid, String se) {
             Log.i(TAG, "Send NFC event: " + intent);
 
             if(!mSmartcardProxy.isSmartcardServiceAvailable()) {
@@ -3492,25 +3516,7 @@ public class NfcService implements DeviceHostListener {
 
                 if (list.size() == 0) {
                     Log.i(TAG, "NO application to handle this NFC event");
-                }
-                else {
-                    // Select in which Se we need to retreive the rules
-                    String se = null;
-
-                    switch(mSelectedSeId) {
-                        case SECURE_ELEMENT_UICC_ID:
-                        case UICC_ID_TYPE:
-                            se = SMARTCARD_READER_UICC;
-                            break;
-                        case SECURE_ELEMENT_SMX_ID:
-                        case SMART_MX_ID_TYPE:
-                            se = SMARTCARD_READER_ESE;
-                            break;
-                        default:
-                            Log.e(TAG, "Bad SE selected: " + mSelectedSeId);
-                            return;
-                    }
-
+                } else {
                     // Build the list of packages interrested in receiving this intent
                     String[] packages = new String[list.size()];
 
