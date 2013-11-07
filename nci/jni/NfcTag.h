@@ -219,6 +219,18 @@ public:
     *******************************************************************************/
     bool isMifareUltralight ();
 
+#ifdef NXP_EXT
+    /*******************************************************************************
+    **
+    ** Function:        isMifareDESFire
+    **
+    ** Description:     Whether the currently activated tag is Mifare Ultralight.
+    **
+    ** Returns:         True if tag is Mifare Ultralight.
+    **
+    *******************************************************************************/
+    bool isMifareDESFire ();
+#endif
 
     /*******************************************************************************
     **
@@ -297,6 +309,29 @@ public:
     *******************************************************************************/
     void setTransceiveTimeout (int techId, int timeout);
 
+#ifdef NXP_EXT
+    /*******************************************************************************
+    **
+    ** Function:        isTypeBTag
+    **
+    ** Description:     Whether the currently activated tag is Type B.
+    **
+    ** Returns:         True if tag is Type B.
+    **
+    *******************************************************************************/
+    bool isTypeBTag ();
+
+    /*******************************************************************************
+    **
+    ** Function:        getTypeATagUID
+    **
+    ** Description:     Get the UID of TypeA Tag.
+    **
+    ** Returns:         UID in case of TypeA Tag otherwise NULL..
+    **
+    *******************************************************************************/
+    void getTypeATagUID(UINT8 **uid, UINT32 *len);
+#endif
 
 private:
     std::vector<int> mTechnologyTimeoutsTable;
