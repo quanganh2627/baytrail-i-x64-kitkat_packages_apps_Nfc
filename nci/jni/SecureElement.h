@@ -461,17 +461,11 @@ public:
     **
     *******************************************************************************/
     bool isRfFieldOn();
-
 #ifdef NXP_EXT
-    static const UINT8 UICC_ID = 0x02;
-    static const UINT8 ESE_ID = 0x01;
-
     tNFA_HANDLE getEseHandleFromGenericId(jint eseId);
     SyncEvent       mRoutingEvent;
     SyncEvent       mAidAddRemoveEvent;
-    SyncEvent       mUiccListenEvent;
 #endif
-
 private:
     static const unsigned int MAX_RESPONSE_SIZE = 1024;
     enum RouteSelection {NoRoute, DefaultRoute, SecElemRoute};
@@ -526,9 +520,7 @@ private:
     SyncEvent       mAidAddRemoveEvent;
 #endif
     SyncEvent       mUiccInfoEvent;
-#ifndef NXP_EXT
     SyncEvent       mUiccListenEvent;
-#endif
     SyncEvent       mTransceiveEvent;
     SyncEvent       mVerInfoEvent;
     SyncEvent       mRegistryEvent;
