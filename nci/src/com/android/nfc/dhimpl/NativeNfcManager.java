@@ -64,7 +64,7 @@ public class NativeNfcManager implements DeviceHost {
 
     private final DeviceHostListener mListener;
     private final Context mContext;
-
+    private boolean pn547Clf;
     public NativeNfcManager(Context context, DeviceHostListener listener) {
         mListener = listener;
         initializeNativeStructure();
@@ -88,7 +88,7 @@ public class NativeNfcManager implements DeviceHost {
     public boolean initialize() {
         SharedPreferences prefs = mContext.getSharedPreferences(PREF, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
-
+        pn547Clf = mContext.getResources().getBoolean(com.android.nfc.R.bool.clf_is_pn547);
         if (prefs.getBoolean(NativeNfcSecureElement.PREF_SE_WIRED, false)) {
             try {
                 Thread.sleep (12000);
@@ -253,7 +253,8 @@ public class NativeNfcManager implements DeviceHost {
 
     @Override
     public boolean canMakeReadOnly(int ndefType) {
-        return (ndefType == Ndef.TYPE_1 || ndefType == Ndef.TYPE_2);
+        return (ndefType == Ndef.TYPE_1 || ndefType == Ndef.TYPE_2 ||
+                ndefType == Ndef.TYPE_MIFARE_CLASSIC);
     }
 
     @Override
@@ -276,7 +277,11 @@ public class NativeNfcManager implements DeviceHost {
                  * such a frame is supported. Extended length frames however
                  * are not supported.
                  */
-                return 261; // Will be automatically split in two frames on the RF layer
+                if (pn547Clf) {
+                    return 0x1000A; // Will be automatically split in two frames on the RF layer
+                } else {
+                    return 261;
+                }
             case (TagTechnology.NFC_F):
                 return 252; // PN544 RF buffer = 255 bytes, subtract one for SoD, two for CRC
             default:
