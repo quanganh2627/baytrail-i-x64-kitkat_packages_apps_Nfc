@@ -26,6 +26,9 @@
 extern "C"
 {
     #include "rw_int.h"
+#ifdef NXP_EXT
+    #include "phNxpExtns.h"
+#endif
 }
 
 
@@ -371,6 +374,30 @@ void NfcTag::discoverTechnologies (tNFA_ACTIVATED& activationData)
         ALOGD ("%s: Kovio", fn);
         mTechList [mNumTechList] = TARGET_TYPE_KOVIO_BARCODE;
         break;
+
+#ifdef NXP_EXT
+    case NFC_PROTOCOL_MIFARE:
+        ALOGE ("Mifare Classic detected");
+        EXTNS_MfcInit(activationData);
+        mTechList [mNumTechList] = TARGET_TYPE_ISO14443_3A;  //is TagTechnology.NFC_A by Java API
+        // could be MifFare UL or Classic or Kovio
+        {
+            // need to look at first byte of uid to find manuf.
+            tNFC_RF_TECH_PARAMS tech_params;
+            memcpy (&tech_params, &(rfDetail.rf_tech_param), sizeof(rfDetail.rf_tech_param));
+
+                {
+                    mNumTechList++;
+                    mTechHandles [mNumTechList] = rfDetail.rf_disc_id;
+                    mTechLibNfcTypes [mNumTechList] = rfDetail.protocol;
+                    //save the stack's data structure for interpretation later
+                    memcpy (&(mTechParams[mNumTechList]), &(rfDetail.rf_tech_param), sizeof(rfDetail.rf_tech_param));
+                    mTechList [mNumTechList] = TARGET_TYPE_MIFARE_CLASSIC; //is TagTechnology.MIFARE_ULTRALIGHT by Java API
+                }
+        }
+        break;
+#endif
+
     default:
         ALOGE ("%s: unknown protocol ????", fn);
         mTechList [mNumTechList] = TARGET_TYPE_UNKNOWN;
@@ -479,6 +506,19 @@ void NfcTag::discoverTechnologies (tNFA_DISC_RESULT& discoveryData)
     case NFC_PROTOCOL_15693: //is TagTechnology.NFC_V by Java API
         mTechList [mNumTechList] = TARGET_TYPE_ISO15693;
         break;
+
+#ifdef NXP_EXT
+    case NFC_PROTOCOL_MIFARE:
+        mTechHandles [mNumTechList] = discovery_ntf.rf_disc_id;
+        mTechLibNfcTypes [mNumTechList] = discovery_ntf.protocol;
+        mTechList [mNumTechList] = TARGET_TYPE_MIFARE_CLASSIC;
+        //save the stack's data structure for interpretation later
+        memcpy (&(mTechParams[mNumTechList]), &(discovery_ntf.rf_tech_param), sizeof(discovery_ntf.rf_tech_param));
+            mNumTechList++;
+        mTechList [mNumTechList] = TARGET_TYPE_ISO14443_3A;
+        break;
+#endif
+
     default:
         ALOGE ("%s: unknown protocol ????", fn);
         mTechList [mNumTechList] = TARGET_TYPE_UNKNOWN;
@@ -752,7 +792,14 @@ void NfcTag::fillNativeNfcTagMembers3 (JNIEnv* e, jclass tag_cls, jobject tag, t
                 e->SetByteArrayRegion(pollBytes.get(), 0, 2, (jbyte *) data);
             }
             break;
-
+#ifdef NXP_EXT
+        case NFC_DISCOVERY_TYPE_POLL_KOVIO:
+            {
+                ALOGD ("%s: tech Kovio", fn);
+                pollBytes.reset(e->NewByteArray(0));
+            }
+            break;
+#endif
         default:
             ALOGE ("%s: tech unknown ????", fn);
             pollBytes.reset(e->NewByteArray(0));
@@ -793,6 +840,12 @@ void NfcTag::fillNativeNfcTagMembers4 (JNIEnv* e, jclass tag_cls, jobject tag, t
         switch (mTechLibNfcTypes[i])
         {
         case NFC_PROTOCOL_T1T:
+            {
+                ALOGD ("%s: T1T; tech A", fn);
+                actBytes.reset(e->NewByteArray(1));
+                e->SetByteArrayRegion(actBytes.get(), 0, 1, (jbyte*) &mTechParams [i].param.pa.sel_rsp);
+            }
+            break;
         case NFC_PROTOCOL_T2T:
             {
                 if (mTechLibNfcTypes[i] == NFC_PROTOCOL_T1T)
@@ -804,6 +857,15 @@ void NfcTag::fillNativeNfcTagMembers4 (JNIEnv* e, jclass tag_cls, jobject tag, t
             }
             break;
 
+#ifdef NXP_EXT
+        case NFC_PROTOCOL_MIFARE:
+            {
+                ALOGD ("%s: Mifare Classic; tech A", fn);
+                actBytes.reset(e->NewByteArray (1));
+                e->SetByteArrayRegion (actBytes.get(), 0, 1, (jbyte*) &mTechParams [i].param.pa.sel_rsp);
+            }
+            break;
+#endif
         case NFC_PROTOCOL_T3T: //felica
             {
                 ALOGD ("%s: T3T; felica; tech F", fn);
@@ -885,7 +947,14 @@ void NfcTag::fillNativeNfcTagMembers4 (JNIEnv* e, jclass tag_cls, jobject tag, t
                 e->SetByteArrayRegion(actBytes.get(), 0, 2, (jbyte *) data);
             }
             break;
-
+#ifdef NXP_EXT
+        case NFC_PROTOCOL_KOVIO:
+            {
+                ALOGD ("%s: tech Kovio", fn);
+                actBytes.reset(e->NewByteArray (0));
+            }
+            break;
+#endif
         default:
             ALOGD ("%s: tech unknown ????", fn);
             actBytes.reset(e->NewByteArray(0));
@@ -1232,6 +1301,41 @@ bool NfcTag::isMifareUltralight ()
     ALOGD ("%s: return=%u", fn, retval);
     return retval;
 }
+#ifdef NXP_EXT
+/*******************************************************************************
+**
+** Function:        isMifareDESFire
+**
+** Description:     Whether the currently activated tag is Mifare DESFire.
+**
+** Returns:         True if tag is Mifare DESFire.
+**
+*******************************************************************************/
+bool NfcTag::isMifareDESFire ()
+{
+    static const char fn [] = "NfcTag::isMifareDESFire";
+    bool retval = false;
+
+    for (int i =0; i < mNumTechList; i++)
+    {
+        if ( (mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_A) ||
+             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_A) ||
+             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_A_ACTIVE) )
+        {
+            /* DESfire has one sak byte and 2 ATQA bytes */
+            if ( (mTechParams[i].param.pa.sens_res[0] == 0x44) &&
+                 (mTechParams[i].param.pa.sens_res[1] == 3) &&
+                 (mTechParams[i].param.pa.sel_rsp == 0x20))
+            {
+                retval = true;
+            }
+            break;
+        }
+    }
+    ALOGD ("%s: return=%u", fn, retval);
+    return retval;
+}
+#endif
 
 
 /*******************************************************************************
@@ -1346,7 +1450,51 @@ void NfcTag::connectionEventHandler (UINT8 event, tNFA_CONN_EVT_DATA* data)
         }
     }
 }
+#ifdef NXP_EXT
+/*******************************************************************************
+**
+** Function:        isTypeBTag
+**
+** Description:     Whether the currently activated tag is Type B.
+**
+** Returns:         True if tag is Type B.
+**
+*******************************************************************************/
+bool NfcTag::isTypeBTag()
+{
+    static const char fn [] = "NfcTag::isTypeBTag";
+    bool retval = false;
 
+    for (int i = 0; i < mNumTechList; i++)
+    {
+        if ((mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_B) ||
+             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_B))
+        {
+            retval = true;
+            break;
+        }
+    }
+    ALOGD ("%s: return=%u", fn, retval);
+    return retval;
+}
+
+void NfcTag::getTypeATagUID(UINT8 **uid, UINT32 *len)
+{
+    for (int i =0; i < mNumTechList; i++)
+    {
+        if ((mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_A) ||
+             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_A))
+        {
+            *len = mTechParams [i].param.pa.nfcid1_len;
+            *uid = mTechParams [0].param.pa.nfcid1;
+            return;
+        }
+    }
+
+    *len = 0;
+    *uid = NULL;
+}
+#endif
 /*******************************************************************************
 **
 ** Function         setActive
