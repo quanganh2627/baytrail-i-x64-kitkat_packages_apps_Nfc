@@ -3247,9 +3247,8 @@ static jboolean com_android_nfc_NfcManager_doDownload(JNIEnv *e, jobject o)
 
 static jstring com_android_nfc_NfcManager_doDump(JNIEnv *e, jobject o)
 {
-    char buffer[100];
-    //snprintf(buffer, sizeof(buffer), "libnfc llc error_count=%u", libnfc_llc_error_count);
-    return e->NewStringUTF(buffer);
+    //nothing to report, simply notify we reached this function
+    return e->NewStringUTF(__FUNCTION__);
 }
 
 #if SNI
