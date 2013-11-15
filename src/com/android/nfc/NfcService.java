@@ -292,6 +292,7 @@ public class NfcService implements DeviceHostListener {
     private static NfcService sService;
 
     private static boolean mNfcOnDefault;
+    private static boolean mClfIsPn547;
 
     public static void enforceAdminPerm(Context context) {
         context.enforceCallingOrSelfPermission(ADMIN_PERM, ADMIN_PERM_ERROR);
@@ -494,6 +495,7 @@ public class NfcService implements DeviceHostListener {
         mNfceeAccessControl = new NfceeAccessControl(mContext);
 
         mNfcOnDefault = mContext.getResources().getBoolean(R.bool.nfc_on_default);
+        mClfIsPn547 = "pn547".equals(SystemProperties.get("ro.nfc.nfcc", ""));
 
         mPrefs = mContext.getSharedPreferences(PREF, Context.MODE_PRIVATE);
         mPrefsEditor = mPrefs.edit();
@@ -2058,6 +2060,16 @@ public class NfcService implements DeviceHostListener {
                         }
                         mNfcPollingEnabled = false;
                         mDeviceHost.disableDiscovery();
+
+                        if ((force || !mNfceeRouteEnabled) && mClfIsPn547) {
+                            // Re-Select secure element. This will partially
+                            // re-config the Rf polling mode (which has been
+                            // previoulsy fully disabled) in order to listen
+                            // to the field.
+                            Log.d(TAG, "NFC-EE ON");
+                            mNfceeRouteEnabled = true;
+                            mDeviceHost.doSelectSecureElement();
+                        }
                     }
                 }
             } finally {
