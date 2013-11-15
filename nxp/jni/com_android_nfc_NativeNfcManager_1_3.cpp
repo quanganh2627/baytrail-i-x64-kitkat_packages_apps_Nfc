@@ -3134,6 +3134,7 @@ static void com_android_nfc_NfcManager_doSetP2pTargetModes(JNIEnv *e, jobject o,
 
 static bool performDownload(struct nfc_jni_native_data* nat, bool takeLock) {
     bool result = FALSE;
+    bool drv_result = TRUE;
     int load_result;
     bool wasDisabled = FALSE;
     uint8_t OutputBuffer[1];
@@ -3223,7 +3224,11 @@ static bool performDownload(struct nfc_jni_native_data* nat, bool takeLock) {
     /* Deinitialize Driver */
     if (wasDisabled)
     {
-        result = nfc_jni_unconfigure_driver(nat);
+        drv_result = nfc_jni_unconfigure_driver(nat);
+        if (!drv_result)
+        {
+            emergency_recovery(NULL);
+        }
     }
     if (takeLock)
     {
