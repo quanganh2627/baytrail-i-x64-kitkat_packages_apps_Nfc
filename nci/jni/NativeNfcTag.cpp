@@ -56,6 +56,9 @@ namespace android
 {
     bool    gIsTagDeactivating = false;    // flag for nfa callback indicating we are deactivating for RF interface switch
     bool    gIsSelectingRfInterface = false; // flag for nfa callback indicating we are selecting for RF interface switch
+#ifdef NXP_EXT
+    bool    fNeedToSwitchBack = false;
+#endif
 }
 
 
@@ -1015,7 +1018,6 @@ static jbyteArray nativeNfcTag_doTransceive (JNIEnv* e, jobject, jbyteArray data
 #endif
 {
     ALOGD ("%s: enter; raw=%u; timeout = %d", __FUNCTION__, raw, gGeneralTransceiveTimeout);
-    bool fNeedToSwitchBack = false;
     nfc_jni_native_data *nat = getNative (0, 0);
     bool waitOk = false;
     bool isNack = false;
@@ -1023,6 +1025,8 @@ static jbyteArray nativeNfcTag_doTransceive (JNIEnv* e, jobject, jbyteArray data
     tNFA_STATUS status;
 
 #ifdef NXP_EXT
+    fNeedToSwitchBack = false;
+
     if (NfcTag::getInstance ().mTechLibNfcTypes[0] == NFA_PROTOCOL_MIFARE)
     {
         if( doReconnectFlag == 0)
@@ -1511,6 +1515,11 @@ static jboolean nativeNfcTag_doPresenceCheck (JNIEnv*, jobject)
     UINT8* uid;
     UINT32 uid_len;
     NfcTag::getInstance().getTypeATagUID(&uid,&uid_len);
+
+    if (fNeedToSwitchBack)
+    {
+        sSwitchBackTimer.kill ();
+    }
 #endif
 
     // Special case for Kovio.  The deactivation would have already occurred
