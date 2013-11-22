@@ -69,12 +69,16 @@ public class NativeNfcTag implements TagEndpoint {
     private PresenceCheckWatchdog mWatchdog;
     class PresenceCheckWatchdog extends Thread {
 
-        private int watchdogTimeout = 125;
+        private int watchdogTimeout;
 
         private boolean isPresent = true;
         private boolean isStopped = false;
         private boolean isPaused = false;
         private boolean doCheck = true;
+
+        public PresenceCheckWatchdog(int presenceCheckDelay) {
+            watchdogTimeout = presenceCheckDelay;
+        }
 
         public synchronized void pause() {
             isPaused = true;
@@ -93,12 +97,6 @@ public class NativeNfcTag implements TagEndpoint {
         public synchronized void end() {
             isStopped = true;
             doCheck = false;
-            this.notifyAll();
-        }
-
-        public synchronized void setTimeout(int timeout) {
-            watchdogTimeout = timeout;
-            doCheck = false; // Do it only after we have waited "timeout" ms again
             this.notifyAll();
         }
 
@@ -205,12 +203,15 @@ public class NativeNfcTag implements TagEndpoint {
     }
 
     @Override
-    public synchronized void startPresenceChecking() {
+    public synchronized void startPresenceChecking(int presenceCheckDelay) {
         // Once we start presence checking, we allow the upper layers
         // to know the tag is in the field.
         mIsPresent = true;
+        if (mConnectedTechIndex == -1 && mTechList.length > 0) {
+            connect(mTechList[0]);
+        }
         if (mWatchdog == null) {
-            mWatchdog = new PresenceCheckWatchdog();
+            mWatchdog = new PresenceCheckWatchdog(presenceCheckDelay);
             mWatchdog.start();
         }
     }

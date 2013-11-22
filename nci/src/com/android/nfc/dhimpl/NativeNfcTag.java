@@ -70,12 +70,16 @@ public class NativeNfcTag implements TagEndpoint {
     private PresenceCheckWatchdog mWatchdog;
     class PresenceCheckWatchdog extends Thread {
 
-        private int watchdogTimeout = 125;
+        private final int watchdogTimeout;
 
         private boolean isPresent = true;
         private boolean isStopped = false;
         private boolean isPaused = false;
         private boolean doCheck = true;
+
+        public PresenceCheckWatchdog(int presenceCheckDelay) {
+            watchdogTimeout = presenceCheckDelay;
+        }
 
         public synchronized void pause() {
             isPaused = true;
@@ -94,12 +98,6 @@ public class NativeNfcTag implements TagEndpoint {
         public synchronized void end() {
             isStopped = true;
             doCheck = false;
-            this.notifyAll();
-        }
-
-        public synchronized void setTimeout(int timeout) {
-            watchdogTimeout = timeout;
-            doCheck = false; // Do it only after we have waited "timeout" ms again
             this.notifyAll();
         }
 
@@ -218,12 +216,12 @@ public class NativeNfcTag implements TagEndpoint {
     }
 
     @Override
-    public synchronized void startPresenceChecking() {
+    public synchronized void startPresenceChecking(int presenceCheckDelay) {
         // Once we start presence checking, we allow the upper layers
         // to know the tag is in the field.
         mIsPresent = true;
         if (mWatchdog == null) {
-            mWatchdog = new PresenceCheckWatchdog();
+            mWatchdog = new PresenceCheckWatchdog(presenceCheckDelay);
             mWatchdog.start();
         }
     }
@@ -706,6 +704,17 @@ public class NativeNfcTag implements TagEndpoint {
                     case TagTechnology.NFC_BARCODE: {
                         // hard code this for now, this is the only valid type
                         extras.putInt(NfcBarcode.EXTRA_BARCODE_TYPE, NfcBarcode.TYPE_KOVIO);
+                        break;
+                    }
+
+                    case TagTechnology.MIFARE_CLASSIC: {
+                        byte[] actBytes = mTechActBytes[i];
+                        if ((actBytes != null) && (actBytes.length > 0)) {
+                            extras.putShort(NfcA.EXTRA_SAK, (short) (actBytes[0] & (short) 0xFF));
+                        } else {
+                            // ignore this case.
+                        }
+                        extras.putByteArray(NfcA.EXTRA_ATQA, mTechPollBytes[i]);
                         break;
                     }
 

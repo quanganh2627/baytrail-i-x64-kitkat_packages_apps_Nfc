@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2012 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.android.nfc.handover;
 
 import android.app.Notification;
@@ -276,9 +292,9 @@ public class HandoverTransfer implements Handler.Callback,
         this.mState = newState;
         this.mLastUpdate = SystemClock.elapsedRealtime();
 
-        if (mHandler.hasMessages(MSG_TRANSFER_TIMEOUT)) {
-            // Update timeout timer
-            mHandler.removeMessages(MSG_TRANSFER_TIMEOUT);
+        mHandler.removeMessages(MSG_TRANSFER_TIMEOUT);
+        if (isRunning()) {
+            // Update timeout timer if we're still running
             mHandler.sendEmptyMessageDelayed(MSG_TRANSFER_TIMEOUT, ALIVE_CHECK_MS);
         }
 
@@ -364,12 +380,9 @@ public class HandoverTransfer implements Handler.Callback,
             }
             return true;
         } else if (msg.what == MSG_TRANSFER_TIMEOUT) {
-            // No update on this transfer for a while, check
-            // to see if it's still running, and fail it if it is.
-            if (isRunning()) {
-                if (DBG) Log.d(TAG, "Transfer timed out");
-                updateStateAndNotification(STATE_FAILED);
-            }
+            // No update on this transfer for a while, fail it.
+            if (DBG) Log.d(TAG, "Transfer timed out for id: " + Integer.toString(mTransferId));
+            updateStateAndNotification(STATE_FAILED);
         }
         return false;
     }

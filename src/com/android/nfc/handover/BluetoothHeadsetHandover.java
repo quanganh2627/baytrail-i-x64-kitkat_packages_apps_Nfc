@@ -55,6 +55,7 @@ public class BluetoothHeadsetHandover implements BluetoothProfile.ServiceListene
     static final String ACTION_DENY_CONNECT = "com.android.nfc.handover.action.DENY_CONNECT";
 
     static final int TIMEOUT_MS = 20000;
+    static final int PROXY_MS = 1000;
 
     static final int STATE_INIT = 0;
     static final int STATE_WAITING_FOR_PROXIES = 1;
@@ -75,6 +76,7 @@ public class BluetoothHeadsetHandover implements BluetoothProfile.ServiceListene
 
     static final int MSG_TIMEOUT = 1;
     static final int MSG_NEXT_STEP = 2;
+    static final int MSG_PROXY = 3;
 
     final Context mContext;
     final BluetoothDevice mDevice;
@@ -93,6 +95,8 @@ public class BluetoothHeadsetHandover implements BluetoothProfile.ServiceListene
     // protected by mLock
     BluetoothA2dp mA2dp;
     BluetoothHeadset mHeadset;
+
+    boolean mSingle_proxy;
 
     public interface Callback {
         public void onBluetoothHeadsetHandoverComplete(boolean connected);
@@ -157,7 +161,8 @@ public class BluetoothHeadsetHandover implements BluetoothProfile.ServiceListene
     void nextStepInit() {
         switch (mState) {
             case STATE_INIT:
-                if (mA2dp == null || mHeadset == null) {
+                if ((mA2dp == null && mHeadset == null)
+                || ((mA2dp == null || mHeadset == null) && mSingle_proxy == false)) {
                     mState = STATE_WAITING_FOR_PROXIES;
                     if (!getProfileProxys()) {
                         complete(false);
@@ -169,8 +174,8 @@ public class BluetoothHeadsetHandover implements BluetoothProfile.ServiceListene
                 mState = STATE_INIT_COMPLETE;
                 // Check connected devices and see if we need to disconnect
                 synchronized(mLock) {
-                    if (mA2dp.getConnectedDevices().contains(mDevice) ||
-                            mHeadset.getConnectedDevices().contains(mDevice)) {
+                    if ( (mA2dp != null && mA2dp.getConnectedDevices().contains(mDevice)) ||
+                         (mHeadset != null && mHeadset.getConnectedDevices().contains(mDevice)) ) {
                         Log.i(TAG, "ACTION_DISCONNECT addr=" + mDevice + " name=" + mName);
                         mAction = ACTION_DISCONNECT;
                     } else {
@@ -188,13 +193,13 @@ public class BluetoothHeadsetHandover implements BluetoothProfile.ServiceListene
             case STATE_INIT_COMPLETE:
                 mState = STATE_DISCONNECTING;
                 synchronized (mLock) {
-                    if (mHeadset.getConnectionState(mDevice) != BluetoothProfile.STATE_DISCONNECTED) {
+                    if (mHeadset != null && (mHeadset.getConnectionState(mDevice) != BluetoothProfile.STATE_DISCONNECTED)) {
                         mHfpResult = RESULT_PENDING;
                         mHeadset.disconnect(mDevice);
                     } else {
                         mHfpResult = RESULT_DISCONNECTED;
                     }
-                    if (mA2dp.getConnectionState(mDevice) != BluetoothProfile.STATE_DISCONNECTED) {
+                    if (mA2dp != null && (mA2dp.getConnectionState(mDevice) != BluetoothProfile.STATE_DISCONNECTED)) {
                         mA2dpResult = RESULT_PENDING;
                         mA2dp.disconnect(mDevice);
                     } else {
@@ -252,13 +257,13 @@ public class BluetoothHeadsetHandover implements BluetoothProfile.ServiceListene
                 // HFP then A2DP connect
                 mState = STATE_CONNECTING;
                 synchronized (mLock) {
-                    if (mHeadset.getConnectionState(mDevice) != BluetoothProfile.STATE_CONNECTED) {
+                    if (mHeadset != null && (mHeadset.getConnectionState(mDevice) != BluetoothProfile.STATE_CONNECTED)) {
                         mHfpResult = RESULT_PENDING;
                         mHeadset.connect(mDevice);
                     } else {
                         mHfpResult = RESULT_CONNECTED;
                     }
-                    if (mA2dp.getConnectionState(mDevice) != BluetoothProfile.STATE_CONNECTED) {
+                    if (mA2dp != null && (mA2dp.getConnectionState(mDevice) != BluetoothProfile.STATE_CONNECTED)) {
                         mA2dpResult = RESULT_PENDING;
                         mA2dp.connect(mDevice);
                     } else {
@@ -344,6 +349,7 @@ public class BluetoothHeadsetHandover implements BluetoothProfile.ServiceListene
         mState = STATE_COMPLETE;
         mContext.unregisterReceiver(mReceiver);
         mHandler.removeMessages(MSG_TIMEOUT);
+        mHandler.removeMessages(MSG_PROXY);
         synchronized (mLock) {
             if (mA2dp != null) {
                 mBluetoothAdapter.closeProfileProxy(BluetoothProfile.A2DP, mA2dp);
@@ -395,6 +401,11 @@ public class BluetoothHeadsetHandover implements BluetoothProfile.ServiceListene
                     Log.i(TAG, "Timeout completing BT handover");
                     complete(false);
                     break;
+                case MSG_PROXY:
+                    // Only modified here and no need to protect it by mLock
+                    mSingle_proxy = true;
+                    nextStep();
+                    break;
                 case MSG_NEXT_STEP:
                     nextStep();
                     break;
@@ -421,15 +432,21 @@ public class BluetoothHeadsetHandover implements BluetoothProfile.ServiceListene
             switch (profile) {
                 case BluetoothProfile.HEADSET:
                     mHeadset = (BluetoothHeadset) proxy;
-                    if (mA2dp != null) {
+                    if (mA2dp != null || mSingle_proxy == true) {
+                        mHandler.removeMessages(MSG_PROXY);
                         mHandler.sendEmptyMessage(MSG_NEXT_STEP);
                     }
+                    else
+                        mHandler.sendMessageDelayed(mHandler.obtainMessage(MSG_PROXY), PROXY_MS);
                     break;
                 case BluetoothProfile.A2DP:
                     mA2dp = (BluetoothA2dp) proxy;
-                    if (mHeadset != null) {
+                    if (mHeadset != null || mSingle_proxy == true) {
+                        mHandler.removeMessages(MSG_PROXY);
                         mHandler.sendEmptyMessage(MSG_NEXT_STEP);
                     }
+                    else
+                        mHandler.sendMessageDelayed(mHandler.obtainMessage(MSG_PROXY), PROXY_MS);
                     break;
             }
         }

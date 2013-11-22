@@ -40,6 +40,10 @@ namespace android
 {
     extern void nativeNfcTag_registerNdefTypeHandler ();
     extern void nativeNfcTag_deregisterNdefTypeHandler ();
+#ifdef NXP_EXT
+    extern void startRfDiscovery(bool isStart);
+    extern bool isDiscoveryStarted();
+#endif
 }
 
 
@@ -472,6 +476,9 @@ bool PeerToPeer::deregisterServer (tJNI_HANDLE jniHandle)
     ALOGD ("%s: enter; JNI handle: %u", fn, jniHandle);
     tNFA_STATUS     nfaStat = NFA_STATUS_FAILED;
     sp<P2pServer>   pSrv = NULL;
+#ifdef NXP_EXT
+    bool isDiscStopped = false;
+#endif
 
     mMutex.lock();
     if ((pSrv = findServerLocked (jniHandle)) == NULL)
@@ -481,6 +488,21 @@ bool PeerToPeer::deregisterServer (tJNI_HANDLE jniHandle)
         return (false);
     }
     mMutex.unlock();
+
+#ifdef NXP_EXT
+    //Check if the discovery is started.
+    if(isDiscoveryStarted())
+    {
+        isDiscStopped = true;
+        startRfDiscovery(false);
+    }
+
+    //Check if the discovery is started.
+    if(isDiscoveryStarted())
+    {
+        startRfDiscovery(false);
+    }
+#endif
 
     {
         // Server does not call NFA_P2pDisconnect(), so unblock the accept()
@@ -495,6 +517,13 @@ bool PeerToPeer::deregisterServer (tJNI_HANDLE jniHandle)
     }
 
     removeServer (jniHandle);
+
+#ifdef NXP_EXT
+    if(isDiscStopped == true)
+    {
+        startRfDiscovery(true);
+    }
+#endif
 
     ALOGD ("%s: exit", fn);
     return true;
@@ -579,7 +608,7 @@ void PeerToPeer::removeConn(tJNI_HANDLE jniHandle)
 
     AutoMutex mutex(mMutex);
     // If the connection is a for a client, delete the client itself
-    for (size_t ii = 0; ii < sMax; ii++)
+    for (int ii = 0; ii < sMax; ii++)
     {
         if ((mClients[ii] != NULL) && (mClients[ii]->mClientConn->mJniHandle == jniHandle))
         {
@@ -593,7 +622,7 @@ void PeerToPeer::removeConn(tJNI_HANDLE jniHandle)
     }
 
     // If the connection is for a server, just delete the connection
-    for (size_t ii = 0; ii < sMax; ii++)
+    for (int ii = 0; ii < sMax; ii++)
     {
         if (mServers[ii] != NULL)
         {
@@ -611,7 +640,7 @@ void PeerToPeer::removeConn(tJNI_HANDLE jniHandle)
 **
 ** Function:        connectConnOriented
 **
-** Description:     Estabish a connection-oriented connection to a peer.
+** Description:     Establish a connection-oriented connection to a peer.
 **                  jniHandle: Connection handle.
 **                  serviceName: Peer's service name.
 **
@@ -632,7 +661,7 @@ bool PeerToPeer::connectConnOriented (tJNI_HANDLE jniHandle, const char* service
 **
 ** Function:        connectConnOriented
 **
-** Description:     Estabish a connection-oriented connection to a peer.
+** Description:     Establish a connection-oriented connection to a peer.
 **                  jniHandle: Connection handle.
 **                  destinationSap: Peer's service access point.
 **
@@ -653,7 +682,7 @@ bool PeerToPeer::connectConnOriented (tJNI_HANDLE jniHandle, UINT8 destinationSa
 **
 ** Function:        createDataLinkConn
 **
-** Description:     Estabish a connection-oriented connection to a peer.
+** Description:     Establish a connection-oriented connection to a peer.
 **                  jniHandle: Connection handle.
 **                  serviceName: Peer's service name.
 **                  destinationSap: Peer's service access point.
@@ -793,7 +822,7 @@ sp<NfaConn> PeerToPeer::findConnection (tNFA_HANDLE nfaConnHandle)
 {
     AutoMutex mutex(mMutex);
     // First, look through all the client control blocks
-    for (size_t ii = 0; ii < sMax; ii++)
+    for (int ii = 0; ii < sMax; ii++)
     {
         if ( (mClients[ii] != NULL)
            && (mClients[ii]->mClientConn->mNfaConnHandle == nfaConnHandle) ) {
@@ -802,7 +831,7 @@ sp<NfaConn> PeerToPeer::findConnection (tNFA_HANDLE nfaConnHandle)
     }
 
     // Not found yet. Look through all the server control blocks
-    for (size_t ii = 0; ii < sMax; ii++)
+    for (int ii = 0; ii < sMax; ii++)
     {
         if (mServers[ii] != NULL)
         {
@@ -832,7 +861,7 @@ sp<NfaConn> PeerToPeer::findConnection (tJNI_HANDLE jniHandle)
 {
     AutoMutex mutex(mMutex);
     // First, look through all the client control blocks
-    for (size_t ii = 0; ii < sMax; ii++)
+    for (int ii = 0; ii < sMax; ii++)
     {
         if ( (mClients[ii] != NULL)
           && (mClients[ii]->mClientConn->mJniHandle == jniHandle) ) {
@@ -841,7 +870,7 @@ sp<NfaConn> PeerToPeer::findConnection (tJNI_HANDLE jniHandle)
     }
 
     // Not found yet. Look through all the server control blocks
-    for (size_t ii = 0; ii < sMax; ii++)
+    for (int ii = 0; ii < sMax; ii++)
     {
         if (mServers[ii] != NULL)
         {
@@ -1161,7 +1190,7 @@ void PeerToPeer::handleNfcOnOff (bool isOn)
     else
     {
         // Disconnect through all the clients
-        for (size_t ii = 0; ii < sMax; ii++)
+        for (int ii = 0; ii < sMax; ii++)
         {
             if (mClients[ii] != NULL)
             {
@@ -1186,7 +1215,7 @@ void PeerToPeer::handleNfcOnOff (bool isOn)
         } //loop
 
         // Now look through all the server control blocks
-        for (size_t ii = 0; ii < sMax; ii++)
+        for (int ii = 0; ii < sMax; ii++)
         {
             if (mServers[ii] != NULL)
             {
@@ -1652,6 +1681,12 @@ bool P2pServer::accept(PeerToPeer::tJNI_HANDLE serverJniHandle, PeerToPeer::tJNI
         removeServerConnection(connJniHandle);
         ALOGD ("%s: no handle assigned", fn);
         return (false);
+    }
+
+    if (maxInfoUnit > LLCP_MIU)
+    {
+        ALOGD ("%s: overriding the miu passed by the app(%d) with stack miu(%d)", fn, maxInfoUnit, LLCP_MIU);
+        maxInfoUnit = LLCP_MIU;
     }
 
     ALOGD ("%s: serverJniHandle: %u; connJniHandle: %u; nfa conn h: 0x%X; try accept", fn,

@@ -77,15 +77,15 @@ public:
 
     /*******************************************************************************
     **
-    ** Function:        getListOfEeHandles
+    ** Function:        getSecureElementIdList
     **
-    ** Description:     Get the list of handles of all execution environments.
+    ** Description:     Get a list of ID's of all secure elements.
     **                  e: Java Virtual Machine.
     **
-    ** Returns:         List of handles of all execution environments.
+    ** Returns:         List of ID's.
     **
     *******************************************************************************/
-    jintArray getListOfEeHandles (JNIEnv* e);
+    jintArray getSecureElementIdList (JNIEnv* e);
 
 
     /*******************************************************************************
@@ -156,6 +156,8 @@ public:
     *******************************************************************************/
     bool transceive (UINT8* xmitBuffer, INT32 xmitBufferSize, UINT8* recvBuffer,
                      INT32 recvBufferMaxSize, INT32& recvBufferActualSize, INT32 timeoutMillisec);
+
+    void notifyModeSet (tNFA_HANDLE eeHandle, bool success);
 
     /*******************************************************************************
     **
@@ -302,32 +304,6 @@ public:
     **
     *******************************************************************************/
     void setActiveSeOverride (UINT8 activeSeOverride);
-
-
-    /*******************************************************************************
-    **
-    ** Function:        routeToSecureElement
-    **
-    ** Description:     Adjust controller's listen-mode routing table so transactions
-    **                  are routed to the secure elements as specified in route.xml.
-    **
-    ** Returns:         True if ok.
-    **
-    *******************************************************************************/
-    bool routeToSecureElement ();
-
-
-    /*******************************************************************************
-    **
-    ** Function:        routeToDefault
-    **
-    ** Description:     Adjust controller's listen-mode routing table so transactions
-    **                  are routed to the default destination specified in route.xml.
-    **
-    ** Returns:         True if ok.
-    **
-    *******************************************************************************/
-    bool routeToDefault ();
 
 
     /*******************************************************************************

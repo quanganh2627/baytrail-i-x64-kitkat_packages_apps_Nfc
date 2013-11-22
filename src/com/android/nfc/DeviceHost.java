@@ -36,6 +36,12 @@ public interface DeviceHost {
         public void onCardEmulationAidSelected(byte[] aid);
 
         /**
+         */
+        public void onHostCardEmulationActivated();
+        public void onHostCardEmulationData(byte[] data);
+        public void onHostCardEmulationDeactivated();
+
+        /**
          * Notifies P2P Device detected, to activate LLCP link
          */
         public void onLlcpLinkActivated(NfcDepEndpoint device);
@@ -75,7 +81,7 @@ public interface DeviceHost {
 
         boolean presenceCheck();
         boolean isPresent();
-        void startPresenceChecking();
+        void startPresenceChecking(int presenceCheckDelay);
 
         int[] getTechList();
         void removeTechnology(int tech); // TODO remove this one
@@ -193,11 +199,21 @@ public interface DeviceHost {
 
     public void disableDiscovery();
 
+    public void enableRoutingToHost();
+
+    public void disableRoutingToHost();
+
     public int[] doGetSecureElementList();
 
     public void doSelectSecureElement();
 
     public void doDeselectSecureElement();
+
+    public boolean sendRawFrame(byte[] data);
+
+    public boolean routeAid(byte[] aid, int route);
+
+    public boolean unrouteAid(byte[] aid);
 
     public LlcpConnectionlessSocket createLlcpConnectionlessSocket(int nSap, String sn)
             throws LlcpException;
@@ -239,4 +255,8 @@ public interface DeviceHost {
     int getDefaultLlcpRwSize();
 
     String dump();
+
+    boolean enableReaderMode(int technologies);
+
+    boolean disableReaderMode();
 }

@@ -16,9 +16,6 @@
 
 package com.android.nfc.dhimpl;
 
-import com.android.nfc.DeviceHost;
-import com.android.nfc.LlcpException;
-
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.content.Context;
@@ -27,6 +24,9 @@ import android.nfc.ErrorCodes;
 import android.nfc.tech.Ndef;
 import android.nfc.tech.TagTechnology;
 import android.util.Log;
+
+import com.android.nfc.DeviceHost;
+import com.android.nfc.LlcpException;
 
 /**
  * Native interface to the NFC Manager functions
@@ -64,7 +64,7 @@ public class NativeNfcManager implements DeviceHost {
 
     private final DeviceHostListener mListener;
     private final Context mContext;
-
+    private boolean pn547Clf;
     public NativeNfcManager(Context context, DeviceHostListener listener) {
         mListener = listener;
         initializeNativeStructure();
@@ -79,6 +79,7 @@ public class NativeNfcManager implements DeviceHost {
 
     @Override
     public void checkFirmware() {
+        doDownload();
     }
 
     private native boolean doInitialize();
@@ -87,7 +88,7 @@ public class NativeNfcManager implements DeviceHost {
     public boolean initialize() {
         SharedPreferences prefs = mContext.getSharedPreferences(PREF, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
-
+        pn547Clf = mContext.getResources().getBoolean(com.android.nfc.R.bool.clf_is_pn547);
         if (prefs.getBoolean(NativeNfcSecureElement.PREF_SE_WIRED, false)) {
             try {
                 Thread.sleep (12000);
@@ -118,10 +119,25 @@ public class NativeNfcManager implements DeviceHost {
     }
 
     @Override
+    public native boolean sendRawFrame(byte[] data);
+
+    @Override
+    public native boolean routeAid(byte[] aid, int route);
+
+    @Override
+    public native boolean unrouteAid(byte[] aid);
+
+    @Override
     public native void enableDiscovery();
 
     @Override
     public native void disableDiscovery();
+
+    @Override
+    public native void enableRoutingToHost();
+
+    @Override
+    public native void disableRoutingToHost();
 
     @Override
     public native int[] doGetSecureElementList();
@@ -237,7 +253,8 @@ public class NativeNfcManager implements DeviceHost {
 
     @Override
     public boolean canMakeReadOnly(int ndefType) {
-        return (ndefType == Ndef.TYPE_1 || ndefType == Ndef.TYPE_2);
+        return (ndefType == Ndef.TYPE_1 || ndefType == Ndef.TYPE_2 ||
+                ndefType == Ndef.TYPE_MIFARE_CLASSIC);
     }
 
     @Override
@@ -260,7 +277,11 @@ public class NativeNfcManager implements DeviceHost {
                  * such a frame is supported. Extended length frames however
                  * are not supported.
                  */
-                return 261; // Will be automatically split in two frames on the RF layer
+                if (pn547Clf) {
+                    return 0x1000A; // Will be automatically split in two frames on the RF layer
+                } else {
+                    return 261;
+                }
             case (TagTechnology.NFC_F):
                 return 252; // PN544 RF buffer = 255 bytes, subtract one for SoD, two for CRC
             default:
@@ -280,6 +301,7 @@ public class NativeNfcManager implements DeviceHost {
     public void setP2pTargetModes(int modes) {
         doSetP2pTargetModes(modes);
     }
+
     @Override
     public boolean getExtendedLengthApdusSupported() {
         // TODO check BCM support
@@ -310,6 +332,20 @@ public class NativeNfcManager implements DeviceHost {
     @Override
     public String dump() {
         return doDump();
+    }
+
+    private native void doEnableReaderMode(int technologies);
+    @Override
+    public boolean enableReaderMode(int technologies) {
+        doEnableReaderMode(technologies);
+        return true;
+    }
+
+    private native void doDisableReaderMode();
+    @Override
+    public boolean disableReaderMode() {
+        doDisableReaderMode();
+        return true;
     }
 
     /**
@@ -380,6 +416,18 @@ public class NativeNfcManager implements DeviceHost {
 
     private void notifySeMifareAccess(byte[] block) {
         mListener.onSeMifareAccess(block);
+    }
+
+    private void notifyHostEmuActivated() {
+        mListener.onHostCardEmulationActivated();
+    }
+
+    private void notifyHostEmuData(byte[] data) {
+        mListener.onHostCardEmulationData(data);
+    }
+
+    private void notifyHostEmuDeactivated() {
+        mListener.onHostCardEmulationDeactivated();
     }
 
 }

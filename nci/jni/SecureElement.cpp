@@ -25,7 +25,6 @@
 #include "SecureElement.h"
 #include "config.h"
 #include "PowerSwitch.h"
-#include "HostAidRouter.h"
 #include "JavaClassConstants.h"
 
 
@@ -50,7 +49,7 @@ namespace android
 
 SecureElement SecureElement::sSecElem;
 const char* SecureElement::APP_NAME = "nfc_jni";
-
+const UINT16 ACTIVE_SE_USE_ANY = 0xFFFF;
 
 /*******************************************************************************
 **
@@ -72,7 +71,7 @@ SecureElement::SecureElement ()
     mbNewEE (true),   // by default we start w/thinking there are new EE
     mNewPipeId (0),
     mNewSourceGate (0),
-    mActiveSeOverride(0),
+    mActiveSeOverride(ACTIVE_SE_USE_ANY),
     mCommandStatus (NFA_STATUS_OK),
     mIsPiping (false),
     mCurrentRouteSelection (NoRoute),
@@ -159,10 +158,12 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
         mDestinationGate = num;
     ALOGD ("%s: Default destination gate: 0x%X", fn, mDestinationGate);
 
-    // active SE, if not set active all SEs
+    // active SE, if not set active all SEs, use the first one.
     if (GetNumValue("ACTIVE_SE", &num, sizeof(num)))
+    {
         mActiveSeOverride = num;
     ALOGD ("%s: Active SE override: 0x%X", fn, mActiveSeOverride);
+    }
 
     if (GetNumValue("OBERTHUR_WARM_RESET_COMMAND", &num, sizeof(num)))
     {
@@ -187,21 +188,16 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
     mUsedAids.clear ();
     memset(mAidForEmptySelect, 0, sizeof(mAidForEmptySelect));
 
+    // if no SE is to be used, get out.
+    if (mActiveSeOverride == 0)
+    {
+        ALOGD ("%s: No SE; No need to initialize SecureElement", fn);
+        return (false);
+    }
+
     // Get Fresh EE info.
     if (! getEeInfo())
         return (false);
-
-    {
-        SyncEventGuard guard (mEeRegisterEvent);
-        ALOGD ("%s: try ee register", fn);
-        nfaStat = NFA_EeRegister (nfaEeCallback);
-        if (nfaStat != NFA_STATUS_OK)
-        {
-            ALOGE ("%s: fail ee register; error=0x%X", fn, nfaStat);
-            return (false);
-        }
-        mEeRegisterEvent.wait ();
-    }
 
     // If the controller has an HCI Network, register for that
     for (size_t xx = 0; xx < mActualNumEe; xx++)
@@ -222,10 +218,6 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
             break;
         }
     }
-
-    mRouteDataSet.initialize ();
-    mRouteDataSet.import (); //read XML file
-    HostAidRouter::getInstance().initialize ();
 
     GetStrValue(NAME_AID_FOR_EMPTY_SELECT, (char*)&mAidForEmptySelect[0], sizeof(mAidForEmptySelect));
 
@@ -248,8 +240,6 @@ void SecureElement::finalize ()
 {
     static const char fn [] = "SecureElement::finalize";
     ALOGD ("%s: enter", fn);
-
-    NFA_EeDeregister (nfaEeCallback);
 
     if (mNfaHciHandle != NFA_HANDLE_INVALID)
         NFA_HciDeregister (const_cast<char*>(APP_NAME));
@@ -391,46 +381,42 @@ bool SecureElement::isActivatedInListenMode() {
 
 /*******************************************************************************
 **
-** Function:        getListOfEeHandles
+** Function:        getSecureElementIdList
 **
-** Description:     Get the list of handles of all execution environments.
+** Description:     Get a list of ID's of all secure elements.
 **                  e: Java Virtual Machine.
 **
-** Returns:         List of handles of all execution environments.
+** Returns:         List of ID's.
 **
 *******************************************************************************/
-jintArray SecureElement::getListOfEeHandles (JNIEnv* e)
+jintArray SecureElement::getSecureElementIdList (JNIEnv* e)
 {
-    static const char fn [] = "SecureElement::getListOfEeHandles";
+    static const char fn [] = "SecureElement::getSecureElementIdList";
     ALOGD ("%s: enter", fn);
-    if (mNumEePresent == 0)
-        return NULL;
 
     if (!mIsInit)
     {
         ALOGE ("%s: not init", fn);
-        return (NULL);
+        return NULL;
     }
 
-    // Get Fresh EE info.
     if (! getEeInfo())
-        return (NULL);
+    {
+        ALOGE ("%s: no sec elem", fn);
+        return NULL;
+    }
 
     jintArray list = e->NewIntArray (mNumEePresent); //allocate array
-    jint jj = 0;
+    jint seId = 0;
     int cnt = 0;
     for (int ii = 0; ii < mActualNumEe && cnt < mNumEePresent; ii++)
     {
-        ALOGD ("%s: %u = 0x%X", fn, ii, mEeInfo[ii].ee_handle);
         if ((mEeInfo[ii].num_interface == 0) || (mEeInfo[ii].ee_interface[0] == NCI_NFCEE_INTERFACE_HCI_ACCESS) )
-        {
             continue;
-        }
-
-        jj = mEeInfo[ii].ee_handle & ~NFA_HANDLE_GROUP_EE;
-        e->SetIntArrayRegion (list, cnt++, 1, &jj);
+        seId = mEeInfo[ii].ee_handle & ~NFA_HANDLE_GROUP_EE;
+        e->SetIntArrayRegion (list, cnt++, 1, &seId);
+        ALOGD ("%s: index=%d; se id=0x%X", fn, ii, seId);
     }
-
     ALOGD("%s: exit", fn);
     return list;
 }
@@ -474,15 +460,17 @@ bool SecureElement::activate (jint seID)
     }
 
     UINT16 overrideEeHandle = 0;
-    if (mActiveSeOverride)
+    // If the Active SE is overridden
+    if (mActiveSeOverride && (mActiveSeOverride != ACTIVE_SE_USE_ANY))
         overrideEeHandle = NFA_HANDLE_GROUP_EE | mActiveSeOverride;
+
+    ALOGD ("%s: override ee h=0x%X", fn, overrideEeHandle );
 
     if (mRfFieldIsOn) {
         ALOGE("%s: RF field indication still on, resetting", fn);
         mRfFieldIsOn = false;
     }
 
-    ALOGD ("%s: override ee h=0x%X", fn, overrideEeHandle );
     //activate every discovered secure element
     for (int index=0; index < mActualNumEe; index++)
     {
@@ -958,10 +946,9 @@ bool SecureElement::transceive (UINT8* xmitBuffer, INT32 xmitBufferSize, UINT8* 
         mActualResponseSize = 0;
         memset (mResponseData, 0, sizeof(mResponseData));
         if ((mNewPipeId == STATIC_PIPE_0x70) || (mNewPipeId == STATIC_PIPE_0x71))
-            nfaStat = NFA_HciSendEvent (mNfaHciHandle, mNewPipeId, EVT_SEND_DATA, xmitBufferSize, xmitBuffer, sizeof(mResponseData), mResponseData, 0);
+            nfaStat = NFA_HciSendEvent (mNfaHciHandle, mNewPipeId, EVT_SEND_DATA, xmitBufferSize, xmitBuffer, sizeof(mResponseData), mResponseData, timeoutMillisec);
         else
-            nfaStat = NFA_HciSendEvent (mNfaHciHandle, mNewPipeId, NFA_HCI_EVT_POST_DATA, xmitBufferSize, xmitBuffer, sizeof(mResponseData), mResponseData, 0);
-
+            nfaStat = NFA_HciSendEvent (mNfaHciHandle, mNewPipeId, NFA_HCI_EVT_POST_DATA, xmitBufferSize, xmitBuffer, sizeof(mResponseData), mResponseData, timeoutMillisec);
         if (nfaStat == NFA_STATUS_OK)
         {
             waitOk = mTransceiveEvent.wait (timeoutMillisec);
@@ -991,6 +978,24 @@ TheEnd:
     return (isSuccess);
 }
 
+
+void SecureElement::notifyModeSet (tNFA_HANDLE eeHandle, bool success)
+{
+    static const char* fn = "SecureElement::notifyModeSet";
+    if (success)
+    {
+        tNFA_EE_INFO *pEE = sSecElem.findEeByHandle (eeHandle);
+        if (pEE)
+        {
+            pEE->ee_status ^= 1;
+            ALOGD ("%s: NFA_EE_MODE_SET_EVT; pEE->ee_status: %s (0x%04x)", fn, SecureElement::eeStatusToString(pEE->ee_status), pEE->ee_status);
+        }
+        else
+            ALOGE ("%s: NFA_EE_MODE_SET_EVT; EE: 0x%04x not found.  mActiveEeHandle: 0x%04x", fn, eeHandle, sSecElem.mActiveEeHandle);
+    }
+    SyncEventGuard guard (sSecElem.mEeSetModeEvent);
+    sSecElem.mEeSetModeEvent.notifyOne();
+}
 
 /*******************************************************************************
 **
@@ -1093,7 +1098,7 @@ void SecureElement::notifyRfFieldEvent (bool isActive)
 void SecureElement::resetRfFieldStatus ()
 {
     static const char fn [] = "SecureElement::resetRfFieldStatus`";
-    ALOGD ("%s: enter;");
+    ALOGD ("%s: enter;", fn);
 
     mMutex.lock();
     mRfFieldIsOn = false;
@@ -1137,596 +1142,6 @@ void SecureElement::storeUiccInfo (tNFA_EE_DISCOVER_REQ& info)
                 info.ee_disc_info[xx].lbp_protocol);
     }
     mUiccInfoEvent.notifyOne ();
-}
-
-
-/*******************************************************************************
-**
-** Function:        getUiccId
-**
-** Description:     Get the ID of the secure element.
-**                  eeHandle: Handle to the secure element.
-**                  uid: Array to receive the ID.
-**
-** Returns:         True if ok.
-**
-*******************************************************************************/
-bool SecureElement::getUiccId (tNFA_HANDLE eeHandle, jbyteArray& uid)
-{
-    static const char fn [] = "SecureElement::getUiccId";
-    ALOGD ("%s: ee h=0x%X", fn, eeHandle);
-    bool retval = false;
-
-    JNIEnv* e = NULL;
-    ScopedAttach attach(mNativeData->vm, &e);
-    if (e == NULL)
-    {
-        ALOGE ("%s: jni env is null", fn);
-        return false;
-    }
-
-    findUiccByHandle (eeHandle);
-    //cannot get UID from the stack; nothing to do
-
-    // TODO: uid is unused --- bug?
-
-    // TODO: retval is always false --- bug?
-    ALOGD ("%s: exit; ret=%u", fn, retval);
-    return retval;
-}
-
-
-/*******************************************************************************
-**
-** Function:        getTechnologyList
-**
-** Description:     Get all the technologies supported by a secure element.
-**                  eeHandle: Handle of secure element.
-**                  techList: List to receive the technologies.
-**
-** Returns:         True if ok.
-**
-*******************************************************************************/
-bool SecureElement::getTechnologyList (tNFA_HANDLE eeHandle, jintArray& techList)
-{
-    static const char fn [] = "SecureElement::getTechnologyList";
-    ALOGD ("%s: ee h=0x%X", fn, eeHandle);
-    bool retval = false;
-
-    JNIEnv* e = NULL;
-    ScopedAttach attach(mNativeData->vm, &e);
-    if (e == NULL)
-    {
-        ALOGE ("%s: jni env is null", fn);
-        return false;
-    }
-
-    tNFA_EE_DISCOVER_INFO *pUICC = findUiccByHandle (eeHandle);
-
-    // TODO: theList is written but not set --- bug?
-    jint theList = 0;
-    if (pUICC->la_protocol != 0)
-        theList = TARGET_TYPE_ISO14443_3A;
-    else if (pUICC->lb_protocol != 0)
-        theList = TARGET_TYPE_ISO14443_3B;
-    else if (pUICC->lf_protocol != 0)
-        theList = TARGET_TYPE_FELICA;
-    else if (pUICC->lbp_protocol != 0)
-        theList = TARGET_TYPE_ISO14443_3B;
-    else
-        theList = TARGET_TYPE_UNKNOWN;
-
-    // TODO: techList is neither read nor written --- bug?
-
-    // TODO: retval is always false --- bug?
-    ALOGD ("%s: exit; ret=%u", fn, retval);
-    return retval;
-}
-
-
-/*******************************************************************************
-**
-** Function:        adjustRoutes
-**
-** Description:     Adjust routes in the controller's listen-mode routing table.
-**                  selection: which set of routes to configure the controller.
-**
-** Returns:         None
-**
-*******************************************************************************/
-void SecureElement::adjustRoutes (RouteSelection selection)
-{
-    static const char fn [] = "SecureElement::adjustRoutes";
-    ALOGD ("%s: enter; selection=%u", fn, selection);
-    RouteDataSet::Database* db = mRouteDataSet.getDatabase (RouteDataSet::DefaultRouteDatabase);
-
-    if (selection == SecElemRoute)
-        db = mRouteDataSet.getDatabase (RouteDataSet::SecElemRouteDatabase);
-
-    mCurrentRouteSelection = selection;
-    adjustProtocolRoutes (db, selection);
-    adjustTechnologyRoutes (db, selection);
-    HostAidRouter::getInstance ().deleteAllRoutes (); //stop all AID routes to host
-
-    if (db->empty())
-    {
-        ALOGD ("%s: no route configuration", fn);
-        goto TheEnd;
-    }
-
-
-TheEnd:
-    NFA_EeUpdateNow (); //apply new routes now
-    ALOGD ("%s: exit", fn);
-}
-
-
-/*******************************************************************************
-**
-** Function:        applyRoutes
-**
-** Description:     Read route data from file and apply them again.
-**
-** Returns:         None
-**
-*******************************************************************************/
-void SecureElement::applyRoutes ()
-{
-    static const char fn [] = "SecureElement::applyRoutes";
-    ALOGD ("%s: enter", fn);
-    if (mCurrentRouteSelection != NoRoute)
-    {
-        mRouteDataSet.import (); //read XML file
-        adjustRoutes (mCurrentRouteSelection);
-    }
-    ALOGD ("%s: exit", fn);
-}
-
-
-/*******************************************************************************
-**
-** Function:        adjustProtocolRoutes
-**
-** Description:     Adjust default routing based on protocol in NFC listen mode.
-**                  isRouteToEe: Whether routing to EE (true) or host (false).
-**
-** Returns:         None
-**
-*******************************************************************************/
-void SecureElement::adjustProtocolRoutes (RouteDataSet::Database* db, RouteSelection routeSelection)
-{
-    static const char fn [] = "SecureElement::adjustProtocolRoutes";
-    ALOGD ("%s: enter", fn);
-    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
-    const tNFA_PROTOCOL_MASK protoMask = NFA_PROTOCOL_MASK_ISO_DEP;
-
-    ///////////////////////
-    // delete route to host
-    ///////////////////////
-    {
-        ALOGD ("%s: delete route to host", fn);
-        SyncEventGuard guard (mRoutingEvent);
-        if ((nfaStat = NFA_EeSetDefaultProtoRouting (NFA_EE_HANDLE_DH, 0, 0, 0)) == NFA_STATUS_OK)
-            mRoutingEvent.wait ();
-        else
-            ALOGE ("%s: fail delete route to host; error=0x%X", fn, nfaStat);
-    }
-
-    ///////////////////////
-    // delete route to every sec elem
-    ///////////////////////
-    for (int i=0; i < mActualNumEe; i++)
-    {
-        if ((mEeInfo[i].num_interface != 0) &&
-                (mEeInfo[i].ee_interface[0] != NFC_NFCEE_INTERFACE_HCI_ACCESS) &&
-                (mEeInfo[i].ee_status == NFA_EE_STATUS_ACTIVE))
-        {
-            ALOGD ("%s: delete route to EE h=0x%X", fn, mEeInfo[i].ee_handle);
-            SyncEventGuard guard (mRoutingEvent);
-            if ((nfaStat = NFA_EeSetDefaultProtoRouting (mEeInfo[i].ee_handle, 0, 0, 0)) == NFA_STATUS_OK)
-                mRoutingEvent.wait ();
-            else
-                ALOGE ("%s: fail delete route to EE; error=0x%X", fn, nfaStat);
-        }
-    }
-
-    //////////////////////
-    // configure route for every discovered sec elem
-    //////////////////////
-    for (int i=0; i < mActualNumEe; i++)
-    {
-        //if sec elem is active
-        if ((mEeInfo[i].num_interface != 0) &&
-                (mEeInfo[i].ee_interface[0] != NFC_NFCEE_INTERFACE_HCI_ACCESS) &&
-                (mEeInfo[i].ee_status == NFA_EE_STATUS_ACTIVE))
-        {
-            tNFA_PROTOCOL_MASK protocolsSwitchOn = 0; //all protocols that are active at full power
-            tNFA_PROTOCOL_MASK protocolsSwitchOff = 0; //all protocols that are active when phone is turned off
-            tNFA_PROTOCOL_MASK protocolsBatteryOff = 0; //all protocols that are active when there is no power
-
-            //for every route in XML, look for protocol route;
-            //collect every protocol according to it's desired power mode
-            for (RouteDataSet::Database::iterator iter = db->begin(); iter != db->end(); iter++)
-            {
-                RouteData* routeData = *iter;
-                RouteDataForProtocol* route = NULL;
-                if (routeData->mRouteType != RouteData::ProtocolRoute)
-                    continue; //skip other kinds of routing data
-                route = (RouteDataForProtocol*) (*iter);
-                if (route->mNfaEeHandle == mEeInfo[i].ee_handle)
-                {
-                    if (route->mSwitchOn)
-                        protocolsSwitchOn |= route->mProtocol;
-                    if (route->mSwitchOff)
-                        protocolsSwitchOff |= route->mProtocol;
-                    if (route->mBatteryOff)
-                        protocolsBatteryOff |= route->mProtocol;
-                }
-            }
-
-            if (protocolsSwitchOn | protocolsSwitchOff | protocolsBatteryOff)
-            {
-                ALOGD ("%s: route to EE h=0x%X", fn, mEeInfo[i].ee_handle);
-                SyncEventGuard guard (mRoutingEvent);
-                nfaStat = NFA_EeSetDefaultProtoRouting (mEeInfo[i].ee_handle,
-                        protocolsSwitchOn, protocolsSwitchOff, protocolsBatteryOff);
-                if (nfaStat == NFA_STATUS_OK)
-                    mRoutingEvent.wait ();
-                else
-                    ALOGE ("%s: fail route to EE; error=0x%X", fn, nfaStat);
-            }
-        } //if sec elem is active
-    } //for every discovered sec elem
-
-    //////////////////////
-    // configure route to host
-    //////////////////////
-    {
-        tNFA_PROTOCOL_MASK protocolsSwitchOn = 0; //all protocols that are active at full power
-        tNFA_PROTOCOL_MASK protocolsSwitchOff = 0; //all protocols that are active when phone is turned off
-        tNFA_PROTOCOL_MASK protocolsBatteryOff = 0; //all protocols that are active when there is no power
-
-        //for every route in XML, look for protocol route;
-        //collect every protocol according to it's desired power mode
-        for (RouteDataSet::Database::iterator iter = db->begin(); iter != db->end(); iter++)
-        {
-            RouteData* routeData = *iter;
-            RouteDataForProtocol* route = NULL;
-            if (routeData->mRouteType != RouteData::ProtocolRoute)
-                continue; //skip other kinds of routing data
-            route = (RouteDataForProtocol*) (*iter);
-            if (route->mNfaEeHandle == NFA_EE_HANDLE_DH)
-            {
-                if (route->mSwitchOn)
-                    protocolsSwitchOn |= route->mProtocol;
-                if (route->mSwitchOff)
-                    protocolsSwitchOff |= route->mProtocol;
-                if (route->mBatteryOff)
-                    protocolsBatteryOff |= route->mProtocol;
-            }
-        }
-
-        if (protocolsSwitchOn | protocolsSwitchOff | protocolsBatteryOff)
-        {
-            ALOGD ("%s: route to EE h=0x%X", fn, NFA_EE_HANDLE_DH);
-            SyncEventGuard guard (mRoutingEvent);
-            nfaStat = NFA_EeSetDefaultProtoRouting (NFA_EE_HANDLE_DH,
-                    protocolsSwitchOn, protocolsSwitchOff, protocolsBatteryOff);
-            if (nfaStat == NFA_STATUS_OK)
-                mRoutingEvent.wait ();
-            else
-                ALOGE ("%s: fail route to EE; error=0x%X", fn, nfaStat);
-        }
-    }
-
-    //////////////////////
-    // if route database is empty, setup a default route
-    //////////////////////
-    if (db->empty())
-    {
-        tNFA_HANDLE eeHandle = NFA_EE_HANDLE_DH;
-        if (routeSelection == SecElemRoute)
-            eeHandle = mActiveEeHandle;
-        ALOGD ("%s: route to default EE h=0x%X", fn, eeHandle);
-        SyncEventGuard guard (mRoutingEvent);
-        nfaStat = NFA_EeSetDefaultProtoRouting (eeHandle, protoMask, 0, 0);
-        if (nfaStat == NFA_STATUS_OK)
-            mRoutingEvent.wait ();
-        else
-            ALOGE ("%s: fail route to EE; error=0x%X", fn, nfaStat);
-    }
-    ALOGD ("%s: exit", fn);
-}
-
-
-/*******************************************************************************
-**
-** Function:        adjustTechnologyRoutes
-**
-** Description:     Adjust default routing based on technology in NFC listen mode.
-**                  isRouteToEe: Whether routing to EE (true) or host (false).
-**
-** Returns:         None
-**
-*******************************************************************************/
-void SecureElement::adjustTechnologyRoutes (RouteDataSet::Database* db, RouteSelection routeSelection)
-{
-    static const char fn [] = "SecureElement::adjustTechnologyRoutes";
-    ALOGD ("%s: enter", fn);
-    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
-    const tNFA_TECHNOLOGY_MASK techMask = NFA_TECHNOLOGY_MASK_A | NFA_TECHNOLOGY_MASK_B;
-
-    ///////////////////////
-    // delete route to host
-    ///////////////////////
-    {
-        ALOGD ("%s: delete route to host", fn);
-        SyncEventGuard guard (mRoutingEvent);
-        if ((nfaStat = NFA_EeSetDefaultTechRouting (NFA_EE_HANDLE_DH, 0, 0, 0)) == NFA_STATUS_OK)
-            mRoutingEvent.wait ();
-        else
-            ALOGE ("%s: fail delete route to host; error=0x%X", fn, nfaStat);
-    }
-
-    ///////////////////////
-    // delete route to every sec elem
-    ///////////////////////
-    for (int i=0; i < mActualNumEe; i++)
-    {
-        if ((mEeInfo[i].num_interface != 0) &&
-                (mEeInfo[i].ee_interface[0] != NFC_NFCEE_INTERFACE_HCI_ACCESS) &&
-                (mEeInfo[i].ee_status == NFA_EE_STATUS_ACTIVE))
-        {
-            ALOGD ("%s: delete route to EE h=0x%X", fn, mEeInfo[i].ee_handle);
-            SyncEventGuard guard (mRoutingEvent);
-            if ((nfaStat = NFA_EeSetDefaultTechRouting (mEeInfo[i].ee_handle, 0, 0, 0)) == NFA_STATUS_OK)
-                mRoutingEvent.wait ();
-            else
-                ALOGE ("%s: fail delete route to EE; error=0x%X", fn, nfaStat);
-        }
-    }
-
-    //////////////////////
-    // configure route for every discovered sec elem
-    //////////////////////
-    for (int i=0; i < mActualNumEe; i++)
-    {
-        //if sec elem is active
-        if ((mEeInfo[i].num_interface != 0) &&
-                (mEeInfo[i].ee_interface[0] != NFC_NFCEE_INTERFACE_HCI_ACCESS) &&
-                (mEeInfo[i].ee_status == NFA_EE_STATUS_ACTIVE))
-        {
-            tNFA_TECHNOLOGY_MASK techsSwitchOn = 0; //all techs that are active at full power
-            tNFA_TECHNOLOGY_MASK techsSwitchOff = 0; //all techs that are active when phone is turned off
-            tNFA_TECHNOLOGY_MASK techsBatteryOff = 0; //all techs that are active when there is no power
-
-            //for every route in XML, look for tech route;
-            //collect every tech according to it's desired power mode
-            for (RouteDataSet::Database::iterator iter = db->begin(); iter != db->end(); iter++)
-            {
-                RouteData* routeData = *iter;
-                RouteDataForTechnology* route = NULL;
-                if (routeData->mRouteType != RouteData::TechnologyRoute)
-                    continue; //skip other kinds of routing data
-                route = (RouteDataForTechnology*) (*iter);
-                if (route->mNfaEeHandle == mEeInfo[i].ee_handle)
-                {
-                    if (route->mSwitchOn)
-                        techsSwitchOn |= route->mTechnology;
-                    if (route->mSwitchOff)
-                        techsSwitchOff |= route->mTechnology;
-                    if (route->mBatteryOff)
-                        techsBatteryOff |= route->mTechnology;
-                }
-            }
-
-            if (techsSwitchOn | techsSwitchOff | techsBatteryOff)
-            {
-                ALOGD ("%s: route to EE h=0x%X", fn, mEeInfo[i].ee_handle);
-                SyncEventGuard guard (mRoutingEvent);
-                nfaStat = NFA_EeSetDefaultTechRouting (mEeInfo[i].ee_handle,
-                        techsSwitchOn, techsSwitchOff, techsBatteryOff);
-                if (nfaStat == NFA_STATUS_OK)
-                    mRoutingEvent.wait ();
-                else
-                    ALOGE ("%s: fail route to EE; error=0x%X", fn, nfaStat);
-            }
-        } //if sec elem is active
-    } //for every discovered sec elem
-
-    //////////////////////
-    // configure route to host
-    //////////////////////
-    {
-        tNFA_TECHNOLOGY_MASK techsSwitchOn = 0; //all techs that are active at full power
-        tNFA_TECHNOLOGY_MASK techsSwitchOff = 0; //all techs that are active when phone is turned off
-        tNFA_TECHNOLOGY_MASK techsBatteryOff = 0; //all techs that are active when there is no power
-
-        //for every route in XML, look for protocol route;
-        //collect every protocol according to it's desired power mode
-        for (RouteDataSet::Database::iterator iter = db->begin(); iter != db->end(); iter++)
-        {
-            RouteData* routeData = *iter;
-            RouteDataForTechnology * route = NULL;
-            if (routeData->mRouteType != RouteData::TechnologyRoute)
-                continue; //skip other kinds of routing data
-            route = (RouteDataForTechnology*) (*iter);
-            if (route->mNfaEeHandle == NFA_EE_HANDLE_DH)
-            {
-                if (route->mSwitchOn)
-                    techsSwitchOn |= route->mTechnology;
-                if (route->mSwitchOff)
-                    techsSwitchOff |= route->mTechnology;
-                if (route->mBatteryOff)
-                    techsBatteryOff |= route->mTechnology;
-            }
-        }
-
-        if (techsSwitchOn | techsSwitchOff | techsBatteryOff)
-        {
-            ALOGD ("%s: route to EE h=0x%X", fn, NFA_EE_HANDLE_DH);
-            SyncEventGuard guard (mRoutingEvent);
-            nfaStat = NFA_EeSetDefaultTechRouting (NFA_EE_HANDLE_DH,
-                    techsSwitchOn, techsSwitchOff, techsBatteryOff);
-            if (nfaStat == NFA_STATUS_OK)
-                mRoutingEvent.wait ();
-            else
-                ALOGE ("%s: fail route to EE; error=0x%X", fn, nfaStat);
-        }
-    }
-
-    //////////////////////
-    // if route database is empty, setup a default route
-    //////////////////////
-    if (db->empty())
-    {
-        tNFA_HANDLE eeHandle = NFA_EE_HANDLE_DH;
-        if (routeSelection == SecElemRoute)
-            eeHandle = mActiveEeHandle;
-        ALOGD ("%s: route to default EE h=0x%X", fn, eeHandle);
-        SyncEventGuard guard (mRoutingEvent);
-        nfaStat = NFA_EeSetDefaultTechRouting (eeHandle, techMask, 0, 0);
-        if (nfaStat == NFA_STATUS_OK)
-            mRoutingEvent.wait ();
-        else
-            ALOGE ("%s: fail route to EE; error=0x%X", fn, nfaStat);
-    }
-    ALOGD ("%s: exit", fn);
-}
-
-
-/*******************************************************************************
-**
-** Function:        nfaEeCallback
-**
-** Description:     Receive execution environment-related events from stack.
-**                  event: Event code.
-**                  eventData: Event data.
-**
-** Returns:         None
-**
-*******************************************************************************/
-void SecureElement::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* eventData)
-{
-    static const char fn [] = "SecureElement::nfaEeCallback";
-
-    switch (event)
-    {
-    case NFA_EE_REGISTER_EVT:
-        {
-            SyncEventGuard guard (sSecElem.mEeRegisterEvent);
-            ALOGD ("%s: NFA_EE_REGISTER_EVT; status=%u", fn, eventData->ee_register);
-            sSecElem.mEeRegisterEvent.notifyOne();
-        }
-        break;
-
-    case NFA_EE_MODE_SET_EVT:
-        {
-            ALOGD ("%s: NFA_EE_MODE_SET_EVT; status: 0x%04X  handle: 0x%04X  mActiveEeHandle: 0x%04X", fn,
-                    eventData->mode_set.status, eventData->mode_set.ee_handle, sSecElem.mActiveEeHandle);
-
-            if (eventData->mode_set.status == NFA_STATUS_OK)
-            {
-                tNFA_EE_INFO *pEE = sSecElem.findEeByHandle (eventData->mode_set.ee_handle);
-                if (pEE)
-                {
-                    pEE->ee_status ^= 1;
-                    ALOGD ("%s: NFA_EE_MODE_SET_EVT; pEE->ee_status: %s (0x%04x)", fn, SecureElement::eeStatusToString(pEE->ee_status), pEE->ee_status);
-                }
-                else
-                    ALOGE ("%s: NFA_EE_MODE_SET_EVT; EE: 0x%04x not found.  mActiveEeHandle: 0x%04x", fn, eventData->mode_set.ee_handle, sSecElem.mActiveEeHandle);
-            }
-            SyncEventGuard guard (sSecElem.mEeSetModeEvent);
-            sSecElem.mEeSetModeEvent.notifyOne();
-        }
-        break;
-
-    case NFA_EE_SET_TECH_CFG_EVT:
-        {
-            ALOGD ("%s: NFA_EE_SET_TECH_CFG_EVT; status=0x%X", fn, eventData->status);
-            SyncEventGuard guard (sSecElem.mRoutingEvent);
-            sSecElem.mRoutingEvent.notifyOne ();
-        }
-        break;
-
-    case NFA_EE_SET_PROTO_CFG_EVT:
-        {
-            ALOGD ("%s: NFA_EE_SET_PROTO_CFG_EVT; status=0x%X", fn, eventData->status);
-            SyncEventGuard guard (sSecElem.mRoutingEvent);
-            sSecElem.mRoutingEvent.notifyOne ();
-        }
-        break;
-
-    case NFA_EE_ACTION_EVT:
-        {
-            tNFA_EE_ACTION& action = eventData->action;
-            if (action.trigger == NFC_EE_TRIG_SELECT)
-                ALOGD ("%s: NFA_EE_ACTION_EVT; h=0x%X; trigger=select (0x%X)", fn, action.ee_handle, action.trigger);
-            else if (action.trigger == NFC_EE_TRIG_APP_INIT)
-            {
-                tNFC_APP_INIT& app_init = action.param.app_init;
-                ALOGD ("%s: NFA_EE_ACTION_EVT; h=0x%X; trigger=app-init (0x%X); aid len=%u; data len=%u", fn,
-                        action.ee_handle, action.trigger, app_init.len_aid, app_init.len_data);
-                //if app-init operation is successful;
-                //app_init.data[] contains two bytes, which are the status codes of the event;
-                //app_init.data[] does not contain an APDU response;
-                //see EMV Contactless Specification for Payment Systems; Book B; Entry Point Specification;
-                //version 2.1; March 2011; section 3.3.3.5;
-                if ( (app_init.len_data > 1) &&
-                     (app_init.data[0] == 0x90) &&
-                     (app_init.data[1] == 0x00) )
-                {
-                    sSecElem.notifyTransactionListenersOfAid (app_init.aid, app_init.len_aid);
-                }
-            }
-            else if (action.trigger == NFC_EE_TRIG_RF_PROTOCOL)
-                ALOGD ("%s: NFA_EE_ACTION_EVT; h=0x%X; trigger=rf protocol (0x%X)", fn, action.ee_handle, action.trigger);
-            else if (action.trigger == NFC_EE_TRIG_RF_TECHNOLOGY)
-                ALOGD ("%s: NFA_EE_ACTION_EVT; h=0x%X; trigger=rf tech (0x%X)", fn, action.ee_handle, action.trigger);
-            else
-                ALOGE ("%s: NFA_EE_ACTION_EVT; h=0x%X; unknown trigger (0x%X)", fn, action.ee_handle, action.trigger);
-        }
-        break;
-
-    case NFA_EE_DISCOVER_REQ_EVT:
-        ALOGD ("%s: NFA_EE_DISCOVER_REQ_EVT; status=0x%X; num ee=%u", __FUNCTION__,
-                eventData->discover_req.status, eventData->discover_req.num_ee);
-        sSecElem.storeUiccInfo (eventData->discover_req);
-        break;
-
-    case NFA_EE_NO_CB_ERR_EVT:
-        ALOGD ("%s: NFA_EE_NO_CB_ERR_EVT  status=%u", fn, eventData->status);
-        break;
-
-    case NFA_EE_ADD_AID_EVT:
-        {
-            ALOGD ("%s: NFA_EE_ADD_AID_EVT  status=%u", fn, eventData->status);
-            SyncEventGuard guard (sSecElem.mAidAddRemoveEvent);
-            sSecElem.mAidAddRemoveEvent.notifyOne ();
-        }
-        break;
-
-    case NFA_EE_REMOVE_AID_EVT:
-        {
-            ALOGD ("%s: NFA_EE_REMOVE_AID_EVT  status=%u", fn, eventData->status);
-            SyncEventGuard guard (sSecElem.mAidAddRemoveEvent);
-            sSecElem.mAidAddRemoveEvent.notifyOne ();
-        }
-        break;
-
-    case NFA_EE_NEW_EE_EVT:
-        {
-            ALOGD ("%s: NFA_EE_NEW_EE_EVT  h=0x%X; status=%u", fn,
-                eventData->new_ee.ee_handle, eventData->new_ee.ee_status);
-            // Indicate there are new EE
-            sSecElem.mbNewEE = true;
-        }
-        break;
-
-    default:
-        ALOGE ("%s: unknown event=%u ????", fn, event);
-        break;
-    }
 }
 
 /*******************************************************************************
@@ -2071,118 +1486,6 @@ void SecureElement::connectionEventHandler (UINT8 event, tNFA_CONN_EVT_DATA* /*e
         break;
     }
 }
-
-
-/*******************************************************************************
-**
-** Function:        routeToSecureElement
-**
-** Description:     Adjust controller's listen-mode routing table so transactions
-**                  are routed to the secure elements.
-**
-** Returns:         True if ok.
-**
-*******************************************************************************/
-bool SecureElement::routeToSecureElement ()
-{
-    static const char fn [] = "SecureElement::routeToSecureElement";
-    ALOGD ("%s: enter", fn);
-    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
-    tNFA_TECHNOLOGY_MASK tech_mask = NFA_TECHNOLOGY_MASK_A | NFA_TECHNOLOGY_MASK_B;
-    bool retval = false;
-
-    if (! mIsInit)
-    {
-        ALOGE ("%s: not init", fn);
-        return false;
-    }
-
-    if (mCurrentRouteSelection == SecElemRoute)
-    {
-        ALOGE ("%s: already sec elem route", fn);
-        return true;
-    }
-
-    if (mActiveEeHandle == NFA_HANDLE_INVALID)
-    {
-        ALOGE ("%s: invalid EE handle", fn);
-        return false;
-    }
-
-    adjustRoutes (SecElemRoute);
-
-    {
-        unsigned long num = 0;
-        if (GetNumValue("UICC_LISTEN_TECH_MASK", &num, sizeof(num)))
-            tech_mask = num;
-        ALOGD ("%s: start UICC listen; h=0x%X; tech mask=0x%X", fn, mActiveEeHandle, tech_mask);
-        SyncEventGuard guard (mUiccListenEvent);
-        nfaStat = NFA_CeConfigureUiccListenTech (mActiveEeHandle, tech_mask);
-        if (nfaStat == NFA_STATUS_OK)
-        {
-            mUiccListenEvent.wait ();
-            retval = true;
-        }
-        else
-            ALOGE ("%s: fail to start UICC listen", fn);
-    }
-
-    ALOGD ("%s: exit; ok=%u", fn, retval);
-    return retval;
-}
-
-
-/*******************************************************************************
-**
-** Function:        routeToDefault
-**
-** Description:     Adjust controller's listen-mode routing table so transactions
-**                  are routed to the default destination.
-**
-** Returns:         True if ok.
-**
-*******************************************************************************/
-bool SecureElement::routeToDefault ()
-{
-    static const char fn [] = "SecureElement::routeToDefault";
-    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
-    bool retval = false;
-
-    ALOGD ("%s: enter", fn);
-    if (! mIsInit)
-    {
-        ALOGE ("%s: not init", fn);
-        return false;
-    }
-
-    if (mCurrentRouteSelection == DefaultRoute)
-    {
-        ALOGD ("%s: already default route", fn);
-        return true;
-    }
-
-    if (mActiveEeHandle != NFA_HANDLE_INVALID)
-    {
-        ALOGD ("%s: stop UICC listen; EE h=0x%X", fn, mActiveEeHandle);
-        SyncEventGuard guard (mUiccListenEvent);
-        nfaStat = NFA_CeConfigureUiccListenTech (mActiveEeHandle, 0);
-        if (nfaStat == NFA_STATUS_OK)
-        {
-            mUiccListenEvent.wait ();
-            retval = true;
-        }
-        else
-            ALOGE ("%s: fail to stop UICC listen", fn);
-    }
-    else
-        retval = true;
-
-    adjustRoutes (DefaultRoute);
-
-    ALOGD ("%s: exit; ok=%u", fn, retval);
-    return retval;
-}
-
 
 /*******************************************************************************
 **

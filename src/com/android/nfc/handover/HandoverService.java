@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2012 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.android.nfc.handover;
 
 import android.app.Service;
@@ -195,6 +211,10 @@ public class HandoverService extends Service implements HandoverTransfer.Callbac
         Bundle msgData = msg.getData();
         BluetoothDevice device = (BluetoothDevice) msgData.getParcelable(EXTRA_HEADSET_DEVICE);
         String name = (String) msgData.getString(EXTRA_HEADSET_NAME);
+        if (mBluetoothHeadsetHandover != null) {
+           Log.d(TAG, "Ignoring pairing request, existing handover in progress.");
+           return;
+        }
         mBluetoothHeadsetHandover = new BluetoothHeadsetHandover(HandoverService.this,
                 device, name, HandoverService.this);
         if (mBluetoothAdapter.isEnabled()) {
@@ -221,6 +241,9 @@ public class HandoverService extends Service implements HandoverTransfer.Callbac
             switch (msg.what) {
                 case MSG_REGISTER_CLIENT:
                     mClient = msg.replyTo;
+                    // Restore state from previous instance
+                    mBluetoothEnabledByNfc = msg.arg1 != 0;
+                    mBluetoothHeadsetConnected = msg.arg2 != 0;
                     break;
                 case MSG_DEREGISTER_CLIENT:
                     mClient = null;
@@ -388,6 +411,13 @@ public class HandoverService extends Service implements HandoverTransfer.Callbac
     }
 
     @Override
+    public boolean onUnbind(Intent intent) {
+        // prevent any future callbacks to the client, no rebind call needed.
+        mClient = null;
+        return false;
+    }
+
+    @Override
     public void onTransferComplete(HandoverTransfer transfer, boolean success) {
         // Called on the main thread
 
@@ -423,6 +453,7 @@ public class HandoverService extends Service implements HandoverTransfer.Callbac
             Message msg = Message.obtain(null,
                     connected ? HandoverManager.MSG_HEADSET_CONNECTED
                               : HandoverManager.MSG_HEADSET_NOT_CONNECTED);
+            msg.arg1 = mBluetoothEnabledByNfc ? 1 : 0;
             try {
                 mClient.send(msg);
             } catch (RemoteException e) {
