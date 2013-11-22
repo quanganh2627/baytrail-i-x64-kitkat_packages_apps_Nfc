@@ -54,10 +54,6 @@ jint JNI_OnLoad (JavaVM* jvm, void*)
         return JNI_ERR;
     if (android::register_com_android_nfc_NativeNfcSecureElement (e) == -1)
         return JNI_ERR;
-#ifdef NXP_EXT
-    if (android::register_com_android_nfc_NativeNfcCEFromHost (e) == -1)
-        return JNI_ERR;
-#endif
     ALOGD ("%s: exit", __FUNCTION__);
     return JNI_VERSION_1_6;
 }

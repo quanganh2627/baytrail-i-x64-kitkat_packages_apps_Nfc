@@ -284,12 +284,7 @@ void HostAidRouter::stackCallback (UINT8 event, tNFA_CONN_EVT_DATA* eventData)
         {
             tNFA_CE_DATA& ce_data = eventData->ce_data;
             ALOGD("%s: NFA_CE_DATA_EVT; h=0x%X; data len=%u", fn, ce_data.handle, ce_data.len);
-#ifdef NXP_EXT
-            SecureElement::getInstance().notifyTransactionListenersOfAid ((UINT8 *)"2PAY.SYS.DDF01",
-                    14,ce_data.p_data, ce_data.len, NFA_EE_HANDLE_DH);
-#else
             SecureElement::getInstance().notifyTransactionListenersOfAid ((UINT8 *)"2PAY.SYS.DDF01", 14);
-#endif
         }
         break;
     }

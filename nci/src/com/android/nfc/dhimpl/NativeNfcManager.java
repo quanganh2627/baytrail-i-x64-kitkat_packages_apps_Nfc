@@ -13,25 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/******************************************************************************
- *
- *  The original Work has been changed by NXP Semiconductors.
- *
- *  Copyright (C) 2013 NXP Semiconductors
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- *
- ******************************************************************************/
+
 package com.android.nfc.dhimpl;
 
 import com.android.nfc.DeviceHost;
@@ -42,7 +24,6 @@ import android.annotation.SdkConstant.SdkConstantType;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.nfc.ErrorCodes;
-import android.nfc.MultiSERoutingInfo;
 import android.nfc.tech.Ndef;
 import android.nfc.tech.TagTechnology;
 import android.util.Log;
@@ -83,7 +64,7 @@ public class NativeNfcManager implements DeviceHost {
 
     private final DeviceHostListener mListener;
     private final Context mContext;
-    private boolean pn547Clf;
+
     public NativeNfcManager(Context context, DeviceHostListener listener) {
         mListener = listener;
         initializeNativeStructure();
@@ -93,9 +74,6 @@ public class NativeNfcManager implements DeviceHost {
     public native boolean initializeNativeStructure();
 
     private native boolean doDownload();
-
-    public void doUiccSetSwpMode(int mode){
-    }
 
     public native int doGetLastError();
 
@@ -109,7 +87,7 @@ public class NativeNfcManager implements DeviceHost {
     public boolean initialize() {
         SharedPreferences prefs = mContext.getSharedPreferences(PREF, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
-        pn547Clf = mContext.getResources().getBoolean(com.android.nfc.R.bool.clf_is_pn547);
+
         if (prefs.getBoolean(NativeNfcSecureElement.PREF_SE_WIRED, false)) {
             try {
                 Thread.sleep (12000);
@@ -149,34 +127,11 @@ public class NativeNfcManager implements DeviceHost {
     public native int[] doGetSecureElementList();
 
     @Override
-    public native void doSelectSecureElement(int seID);
-
-    @Override
-    public native void doDeselectSecureElement(int seID);
-
-    @Override
     public native void doSelectSecureElement();
 
     @Override
     public native void doDeselectSecureElement();
 
-    @Override
-    public native boolean doSetMultiSERoutingTable(MultiSERoutingInfo[] routingInfo);
-
-    @Override
-    public native int getChipVer();
-
-    @Override
-    public native int JCOSDownload();
-
-    @Override
-    public native int GetDefaultSE();
-
-    @Override
-    public native int[] getSecureElementTechList();
-
-    @Override
-    public native byte[] getSecureElementUid();
 
     private native NativeLlcpConnectionlessSocket doCreateLlcpConnectionlessSocket(int nSap,
             String sn);
@@ -282,8 +237,7 @@ public class NativeNfcManager implements DeviceHost {
 
     @Override
     public boolean canMakeReadOnly(int ndefType) {
-        return (ndefType == Ndef.TYPE_1 || ndefType == Ndef.TYPE_2 ||
-                ndefType == Ndef.TYPE_MIFARE_CLASSIC);
+        return (ndefType == Ndef.TYPE_1 || ndefType == Ndef.TYPE_2);
     }
 
     @Override
@@ -306,11 +260,7 @@ public class NativeNfcManager implements DeviceHost {
                  * such a frame is supported. Extended length frames however
                  * are not supported.
                  */
-                if (pn547Clf) {
-                    return 0x1000A; // Will be automatically split in two frames on the RF layer
-                } else {
-                    return 261;
-                }
+                return 261; // Will be automatically split in two frames on the RF layer
             case (TagTechnology.NFC_F):
                 return 252; // PN544 RF buffer = 255 bytes, subtract one for SoD, two for CRC
             default:
@@ -318,8 +268,6 @@ public class NativeNfcManager implements DeviceHost {
         }
 
     }
-    @Override
-    public native int setEmvCoPollProfile(boolean enable, int route);
 
     private native void doSetP2pInitiatorModes(int modes);
     @Override
@@ -385,24 +333,6 @@ public class NativeNfcManager implements DeviceHost {
         mListener.onCardEmulationAidSelected(aid);
     }
 
-    private void notifyTransactionListeners(byte[] aid, byte[] data, int evtSrc) {
-        mListener.onCardEmulationAidSelected(aid,data,evtSrc);
-    }
-
-    /**
-     * Notifies transaction
-     */
-    private void notifyConnectivityListeners(int evtSrc) {
-        mListener.onConnectivityEvent(evtSrc);
-    }
-
-    /**
-     * Notifies transaction
-     */
-    private void notifyEmvcoMultiCardDetectedListeners() {
-        mListener.onEmvcoMultiCardDetectedEvent();
-    }
-
     /**
      * Notifies P2P Device detected, to activate LLCP link
      */
@@ -432,19 +362,6 @@ public class NativeNfcManager implements DeviceHost {
         mListener.onRemoteFieldDeactivated();
     }
 
-    /* Reader over SWP listeners*/
-    private void notifySWPReaderRequested(boolean istechA, boolean istechB) {
-        mListener.onSWPReaderRequestedEvent(istechA, istechB);
-    }
-
-    private void notifySWPReaderActivated() {
-        mListener.onSWPReaderActivatedEvent();
-    }
-
-    private void notifyonSWPReaderDeActivated() {
-        mListener.onSWPReaderDeActivatedEvent();
-    }
-
     private void notifySeListenActivated() {
         mListener.onSeListenActivated();
     }
@@ -464,22 +381,5 @@ public class NativeNfcManager implements DeviceHost {
     private void notifySeMifareAccess(byte[] block) {
         mListener.onSeMifareAccess(block);
     }
-
-    /**
-     * Notifies CEFH Activated event
-     */
-     private void notifyCEFromHostActivated() {
-         mListener.onCEFromHostActivatedEvent();
-     }
-
-    /**
-     * Notifies CEFH DeActivated event
-     */
-     private void notifyCEFromHostDeActivated() {
-         mListener.onCEFromHostDeActivatedEvent();
-    }
-
-    @Override
-    public native boolean doSetMultiSEState(boolean state);
 
 }

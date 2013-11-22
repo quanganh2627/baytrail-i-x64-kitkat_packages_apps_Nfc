@@ -40,10 +40,6 @@ namespace android
 {
     extern void nativeNfcTag_registerNdefTypeHandler ();
     extern void nativeNfcTag_deregisterNdefTypeHandler ();
-#ifdef NXP_EXT
-    extern void startRfDiscovery(bool isStart);
-    extern bool isDiscoveryStarted();
-#endif
 }
 
 
@@ -476,9 +472,6 @@ bool PeerToPeer::deregisterServer (tJNI_HANDLE jniHandle)
     ALOGD ("%s: enter; JNI handle: %u", fn, jniHandle);
     tNFA_STATUS     nfaStat = NFA_STATUS_FAILED;
     sp<P2pServer>   pSrv = NULL;
-#ifdef NXP_EXT
-    bool isDiscStopped = false;
-#endif
 
     mMutex.lock();
     if ((pSrv = findServerLocked (jniHandle)) == NULL)
@@ -488,21 +481,6 @@ bool PeerToPeer::deregisterServer (tJNI_HANDLE jniHandle)
         return (false);
     }
     mMutex.unlock();
-
-#ifdef NXP_EXT
-    //Check if the discovery is started.
-    if(isDiscoveryStarted())
-    {
-        isDiscStopped = true;
-        startRfDiscovery(false);
-    }
-
-    //Check if the discovery is started.
-    if(isDiscoveryStarted())
-    {
-        startRfDiscovery(false);
-    }
-#endif
 
     {
         // Server does not call NFA_P2pDisconnect(), so unblock the accept()
@@ -517,13 +495,6 @@ bool PeerToPeer::deregisterServer (tJNI_HANDLE jniHandle)
     }
 
     removeServer (jniHandle);
-
-#ifdef NXP_EXT
-    if(isDiscStopped == true)
-    {
-        startRfDiscovery(true);
-    }
-#endif
 
     ALOGD ("%s: exit", fn);
     return true;

@@ -126,25 +126,10 @@ void nfc_cb_data_releaseAll()
    }
 }
 
-/* Global reference list node */
-typedef struct nfc_jni_global_reference
-{
-    jobject global_reference;
-    LIST_ENTRY(nfc_jni_global_reference) entries;
-} nfc_jni_global_reference_t;
-
-/* Define global reference list head. */
-typedef LIST_HEAD(, nfc_jni_global_reference) global_reference_head_t;
-global_reference_head_t global_reference_head;
-/* Define mutex protection for global reference list manipulation. */
-static pthread_mutex_t gr_mutex = PTHREAD_MUTEX_INITIALIZER;
-
 int nfc_jni_cache_object(JNIEnv *e, const char *clsname,
    jobject *cached_obj)
 {
    ScopedLocalRef<jclass> cls(e, e->FindClass(clsname));
-   nfc_jni_global_reference_t * pGlobalReference = NULL;
-
    if (cls.get() == NULL) {
       ALOGD("Find class error\n");
       return -1;
@@ -163,39 +148,9 @@ int nfc_jni_cache_object(JNIEnv *e, const char *clsname,
       return -1;
    }
 
-   pGlobalReference = (nfc_jni_global_reference_t*)malloc(sizeof(nfc_jni_global_reference_t));
-   if (pGlobalReference == NULL)
-   {
-        ALOGD("Global reference list node allocation error\n");
-        return -1;
-   }
-
-   pGlobalReference->global_reference = *cached_obj;
-   pthread_mutex_lock(&gr_mutex);
-   LIST_INSERT_HEAD(&global_reference_head, pGlobalReference, entries);
-   pthread_mutex_unlock(&gr_mutex);
-
    return 0;
 }
 
-void nfc_jni_delete_global_ref(JNIEnv *e, jobject o)
-{
-    nfc_jni_global_reference_t * pGlobalReference = NULL;
-
-    LIST_FOREACH(pGlobalReference, &global_reference_head, entries)
-    {
-        if (e->IsSameObject(pGlobalReference->global_reference, o))
-        {
-            pthread_mutex_lock(&gr_mutex);
-            LIST_REMOVE(pGlobalReference, entries);
-            pthread_mutex_unlock(&gr_mutex);
-            e->DeleteGlobalRef(pGlobalReference->global_reference);
-            ALOGD("Global reference deleted!\n");
-            free(pGlobalReference);
-            break;
-        }
-    }
-}
 
 struct nfc_jni_native_data* nfc_jni_get_nat(JNIEnv *e, jobject o)
 {
@@ -248,7 +203,6 @@ nfc_jni_native_monitor_t* nfc_jni_init_monitor(void)
       }
 
       LIST_INIT(&nfc_jni_native_monitor->incoming_socket_head);
-      LIST_INIT(&nfc_jni_native_monitor->server_socket_head);
 
       if(pthread_mutex_init(&nfc_jni_native_monitor->incoming_socket_mutex, NULL) == -1)
       {
@@ -261,8 +215,6 @@ nfc_jni_native_monitor_t* nfc_jni_init_monitor(void)
          ALOGE("NFC Manager incoming socket condition creation returned 0x%08x", errno);
          return NULL;
       }
-
-      LIST_INIT(&global_reference_head);
 
 }
 

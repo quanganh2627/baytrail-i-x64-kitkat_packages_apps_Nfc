@@ -13,25 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/******************************************************************************
- *
- *  The original Work has been changed by NXP Semiconductors.
- *
- *  Copyright (C) 2013 NXP Semiconductors
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- *
- ******************************************************************************/
+
 /*
  *  Communicate with secure elements that are attached to the NFC
  *  controller.
@@ -45,10 +27,8 @@
 #include "PowerSwitch.h"
 #include "HostAidRouter.h"
 #include "JavaClassConstants.h"
-#ifdef NXP_EXT
-#include "CEFromHost.h"
-#include "nfc_api.h"
-#endif
+
+
 /*****************************************************************************
 **
 ** public variables
@@ -62,73 +42,12 @@ namespace android
 {
     extern void startRfDiscovery (bool isStart);
     extern void setUiccIdleTimeout (bool enable);
-#ifdef NXP_EXT
-    extern SyncEvent sNfaSetConfigEvent;
-#endif
 }
 
 //////////////////////////////////////////////
 //////////////////////////////////////////////
 
-#ifdef NXP_EXT
 
-#define NFC_NUM_INTERFACE_MAP 2
-
-static const tNCI_DISCOVER_MAPS nfc_interface_mapping_default[NFC_NUM_INTERFACE_MAP] =
-{
-    /* Protocols that use Frame Interface do not need to be included in the interface mapping */
-    {
-        NCI_PROTOCOL_ISO_DEP,
-        NCI_INTERFACE_MODE_POLL_N_LISTEN,
-        NCI_INTERFACE_ISO_DEP
-    }
-    ,
-    {
-        NCI_PROTOCOL_NFC_DEP,
-        NCI_INTERFACE_MODE_POLL_N_LISTEN,
-        NCI_INTERFACE_NFC_DEP
-    }
-};
-static const tNCI_DISCOVER_MAPS nfc_interface_mapping_uicc[NFC_NUM_INTERFACE_MAP] =
-{
-    /* Protocols that use Frame Interface do not need to be included in the interface mapping */
-    {
-        NCI_PROTOCOL_ISO_DEP,
-        NCI_INTERFACE_MODE_POLL,
-        NCI_INTERFACE_UICC_DIRECT
-    }
-    ,
-    {
-        NCI_PROTOCOL_NFC_DEP,
-        NCI_INTERFACE_MODE_POLL_N_LISTEN,
-        NCI_INTERFACE_NFC_DEP
-    }
-};
-
-static const tNCI_DISCOVER_MAPS nfc_interface_mapping_ese[NFC_NUM_INTERFACE_MAP] =
-{
-        /* Protocols that use Frame Interface do not need to be included in the interface mapping */
-    {
-        NCI_PROTOCOL_ISO_DEP,
-        NCI_INTERFACE_MODE_POLL,
-        NCI_INTERFACE_ESE_DIRECT
-    }
-    ,
-    {
-        NCI_PROTOCOL_NFC_DEP,
-        NCI_INTERFACE_MODE_POLL_N_LISTEN,
-        NCI_INTERFACE_NFC_DEP
-    }
-};
-void SecureElement::discovery_map_cb (tNFC_DISCOVER_EVT event, tNFC_DISCOVER *p_data)
-{
-    SyncEventGuard guard (sSecElem.mDiscMapEvent);
-//    ALOGD ("discovery_map_cb; status=%u", eventData->ee_register);
-    sSecElem.mDiscMapEvent.notifyOne();
-}
-
-char bcm_nfc_location[]="/etc";
-#endif
 SecureElement SecureElement::sSecElem;
 const char* SecureElement::APP_NAME = "nfc_jni";
 
@@ -287,13 +206,10 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
     // If the controller has an HCI Network, register for that
     for (size_t xx = 0; xx < mActualNumEe; xx++)
     {
-#ifdef NXP_EXT
-        if ((mEeInfo[xx].num_interface > 0) && (mEeInfo[xx].ee_handle != EE_HANDLE_0xF4 ))
-#else
         if ((mEeInfo[xx].num_interface > 0) && (mEeInfo[xx].ee_interface[0] == NCI_NFCEE_INTERFACE_HCI_ACCESS) )
-#endif
         {
             ALOGD ("%s: Found HCI network, try hci register", fn);
+
             SyncEventGuard guard (mHciRegisterEvent);
 
             nfaStat = NFA_HciRegister (const_cast<char*>(APP_NAME), nfaHciCallback, TRUE);
@@ -512,13 +428,6 @@ jintArray SecureElement::getListOfEeHandles (JNIEnv* e)
         }
 
         jj = mEeInfo[ii].ee_handle & ~NFA_HANDLE_GROUP_EE;
-#ifdef NXP_EXT
-        ALOGD ("%s: Handle %u = 0x%X", fn, ii, jj);
-
-        jj = getGenericEseId(jj);
-
-        ALOGD ("%s: Generic id %u = 0x%X", fn, ii, jj);
-#endif
         e->SetIntArrayRegion (list, cnt++, 1, &jj);
     }
 
@@ -544,23 +453,19 @@ bool SecureElement::activate (jint seID)
     int numActivatedEe = 0;
 
     ALOGD ("%s: enter; seID=0x%X", fn, seID);
-#ifdef NXP_EXT
-    tNFA_HANDLE handle = getEseHandleFromGenericId(seID);
 
-    ALOGD ("%s: handle=0x%X", fn, handle);
-#endif
     if (!mIsInit)
     {
         ALOGE ("%s: not init", fn);
         return false;
     }
-#ifndef NXP_EXT
+
     if (mActiveEeHandle != NFA_HANDLE_INVALID)
     {
         ALOGD ("%s: already active", fn);
         return true;
     }
-#endif
+
     // Get Fresh EE info if needed.
     if (! getEeInfo())
     {
@@ -569,15 +474,9 @@ bool SecureElement::activate (jint seID)
     }
 
     UINT16 overrideEeHandle = 0;
-    if (mActiveSeOverride) {
+    if (mActiveSeOverride)
         overrideEeHandle = NFA_HANDLE_GROUP_EE | mActiveSeOverride;
-    }
-#ifdef NXP_EXT
-    else
-    {
-        overrideEeHandle = handle;
-    }
-#endif
+
     if (mRfFieldIsOn) {
         ALOGE("%s: RF field indication still on, resetting", fn);
         mRfFieldIsOn = false;
@@ -629,7 +528,7 @@ bool SecureElement::activate (jint seID)
 ** Function:        deactivate
 **
 ** Description:     Turn off the secure element.
-**                  seID: ID of secure element.
+**                  seID: ID of secure element; 0xF3 or 0xF4.
 **
 ** Returns:         True if ok.
 **
@@ -640,12 +539,7 @@ bool SecureElement::deactivate (jint seID)
     bool retval = false;
 
     ALOGD ("%s: enter; seID=0x%X, mActiveEeHandle=0x%X", fn, seID, mActiveEeHandle);
-#ifdef NXP_EXT
-    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
-    tNFA_HANDLE handle = getEseHandleFromGenericId(seID);
-    int numDeactivatedEe = 0;
-    ALOGD ("%s: handle=0x%X", fn, handle);
-#endif
+
     if (!mIsInit)
     {
         ALOGE ("%s: not init", fn);
@@ -660,51 +554,14 @@ bool SecureElement::deactivate (jint seID)
         goto TheEnd;
     }
 
-#ifdef NXP_EXT
-    if (seID == NFA_HANDLE_INVALID)
-#else
     if (mActiveEeHandle == NFA_HANDLE_INVALID)
-#endif
     {
         ALOGE ("%s: invalid EE handle", fn);
         goto TheEnd;
     }
 
     mActiveEeHandle = NFA_HANDLE_INVALID;
-
-#ifdef NXP_EXT
-    // Deactivate secure element
-    for (int index=0; index < mActualNumEe; index++)
-    {
-        tNFA_EE_INFO& eeItem = mEeInfo[index];
-
-        if ( eeItem.ee_handle == handle &&
-                ((eeItem.ee_handle == EE_HANDLE_0xF3) || (eeItem.ee_handle == EE_HANDLE_0xF4)))
-        {
-            if (eeItem.ee_status == NFC_NFCEE_STATUS_INACTIVE)
-            {
-                ALOGD ("%s: h=0x%X already deactivated", fn, eeItem.ee_handle);
-                break;
-            }
-
-            {
-                SyncEventGuard guard (mEeSetModeEvent);
-                ALOGD ("%s: set EE mode activate; h=0x%X", fn, eeItem.ee_handle);
-                if ((nfaStat = NFA_EeModeSet (eeItem.ee_handle, NFA_EE_MD_DEACTIVATE)) == NFA_STATUS_OK)
-                {
-                    mEeSetModeEvent.wait (); // wait for NFA_EE_MODE_SET_EVT
-                    if (eeItem.ee_status == NFC_NFCEE_STATUS_INACTIVE)
-                    {
-                        ALOGE ("%s: NFA_EeModeSet success; status=0x%X", fn, nfaStat);
-                        retval = true;
-                    }
-                }
-                else
-                    ALOGE ("%s: NFA_EeModeSet failed; error=0x%X", fn, nfaStat);
-            }
-        }
-    } //for
-#endif
+    retval = true;
 
 TheEnd:
     ALOGD ("%s: exit; ok=%u", fn, retval);
@@ -723,12 +580,7 @@ TheEnd:
 ** Returns:         None
 **
 *******************************************************************************/
-#ifdef NXP_EXT
-void SecureElement::notifyTransactionListenersOfAid (const UINT8* aidBuffer, UINT8 aidBufferLen,
-        const UINT8* dataBuffer, UINT8 dataBufferLen,UINT32 evtSrc)
-#else
 void SecureElement::notifyTransactionListenersOfAid (const UINT8* aidBuffer, UINT8 aidBufferLen)
-#endif
 {
     static const char fn [] = "SecureElement::notifyTransactionListenersOfAid";
     ALOGD ("%s: enter; aid len=%u", fn, aidBufferLen);
@@ -770,152 +622,21 @@ void SecureElement::notifyTransactionListenersOfAid (const UINT8* aidBuffer, UIN
         ALOGE ("%s: fail fill array", fn);
         goto TheEnd;
     }
-#ifdef NXP_EXT
-    if (dataBufferLen > 0)
-    {
-        const UINT16 dataTlvMaxLen = dataBufferLen + 10;
-        UINT8* datatlv = new UINT8 [dataTlvMaxLen];
-        if (datatlv == NULL)
-        {
-            ALOGE ("%s: fail allocate tlv", fn);
-            return;
-        }
 
-        memcpy (datatlv, dataBuffer, dataBufferLen);
-        UINT16 dataTlvActualLen = dataBufferLen;
-
-        ScopedLocalRef<jobject> dataTlvJavaArray(e, e->NewByteArray(dataTlvActualLen));
-        if (dataTlvJavaArray.get() == NULL)
-        {
-            ALOGE ("%s: fail allocate array", fn);
-            goto Clean;
-        }
-
-        e->SetByteArrayRegion ((jbyteArray)dataTlvJavaArray.get(), 0,
-                dataTlvActualLen, (jbyte *)datatlv);
-        if (e->ExceptionCheck())
-        {
-            e->ExceptionClear();
-            ALOGE ("%s: fail fill array", fn);
-            goto Clean;
-        }
-
-        e->CallVoidMethod (mNativeData->manager,
-                android::gCachedNfcManagerNotifyTransactionListeners,
-                tlvJavaArray.get(), dataTlvJavaArray.get(), evtSrc);
-        if (e->ExceptionCheck())
-        {
-            e->ExceptionClear();
-            ALOGE ("%s: fail notify", fn);
-            goto Clean;
-        }
-
-     Clean:
-        delete [] datatlv;
-    }
-    else
-    {
-        e->CallVoidMethod (mNativeData->manager,
-                android::gCachedNfcManagerNotifyTransactionListeners,
-                tlvJavaArray.get(), NULL, evtSrc);
-
-        if (e->ExceptionCheck())
-        {
-            e->ExceptionClear();
-            ALOGE ("%s: fail notify", fn);
-            goto TheEnd;
-        }
-    }
-#else
-    e->CallVoidMethod (mNativeData->manager,
-            android::gCachedNfcManagerNotifyTransactionListeners, tlvJavaArray.get());
-
+    e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifyTransactionListeners, tlvJavaArray.get());
     if (e->ExceptionCheck())
     {
         e->ExceptionClear();
         ALOGE ("%s: fail notify", fn);
         goto TheEnd;
     }
-#endif
 
 TheEnd:
     delete [] tlv;
     ALOGD ("%s: exit", fn);
 }
 
-#ifdef NXP_EXT
-/*******************************************************************************
-**
-** Function:        notifyConnectivityListeners
-**
-** Description:     Notify the NFC service about a connectivity event from secure element.
-**                  evtSrc: source of event UICC/eSE.
-**
-** Returns:         None
-**
-*******************************************************************************/
-void SecureElement::notifyConnectivityListeners (UINT8 evtSrc)
-{
-    static const char fn [] = "SecureElement::notifyConnectivityListeners";
-    ALOGD ("%s: enter; evtSrc =%u", fn, evtSrc);
 
-    JNIEnv* e = NULL;
-    ScopedAttach attach(mNativeData->vm, &e);
-    if (e == NULL)
-    {
-        ALOGE ("%s: jni env is null", fn);
-        return;
-    }
-
-    e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifyConnectivityListeners,
-            evtSrc);
-    if (e->ExceptionCheck())
-    {
-        e->ExceptionClear();
-        ALOGE ("%s: fail notify", fn);
-        goto TheEnd;
-    }
-
-TheEnd:
-    ALOGD ("%s: exit", fn);
-}
-
-/*******************************************************************************
-**
-** Function:        notifyEmvcoMultiCardDetectedListeners
-**
-** Description:     Notify the NFC service about a multiple card presented to
-**                  Emvco reader.
-**
-** Returns:         None
-**
-*******************************************************************************/
-void SecureElement::notifyEmvcoMultiCardDetectedListeners ()
-{
-    static const char fn [] = "SecureElement::notifyEmvcoMultiCardDetectedListeners";
-    ALOGD ("%s: enter; evtSrc =%u", fn);
-
-    JNIEnv* e = NULL;
-    ScopedAttach attach(mNativeData->vm, &e);
-    if (e == NULL)
-    {
-        ALOGE ("%s: jni env is null", fn);
-        return;
-    }
-
-    e->CallVoidMethod (mNativeData->manager,
-        android::gCachedNfcManagerNotifyEmvcoMultiCardDetectedListeners);
-    if (e->ExceptionCheck())
-    {
-        e->ExceptionClear();
-        ALOGE ("%s: fail notify", fn);
-        goto TheEnd;
-    }
-
-TheEnd:
-    ALOGD ("%s: exit", fn);
-}
-#endif
 /*******************************************************************************
 **
 ** Function:        connectEE
@@ -1006,11 +727,7 @@ bool SecureElement::connectEE ()
     // If the .conf file had a static pipe to use, just use it.
     if (mNewPipeId != 0)
     {
-#ifdef NXP_EXT
-        UINT8 host = (mNewPipeId == STATIC_PIPE_0x70) ? 0xC0 : 0x03;
-#else
         UINT8 host = (mNewPipeId == STATIC_PIPE_0x70) ? 0x02 : 0x03;
-#endif
         UINT8 gate = (mNewPipeId == STATIC_PIPE_0x70) ? 0xF0 : 0xF1;
         nfaStat = NFA_HciAddStaticPipe(mNfaHciHandle, host, gate, mNewPipeId);
         if (nfaStat != NFA_STATUS_OK)
@@ -1025,11 +742,7 @@ bool SecureElement::connectEE ()
         if ( (pEE->num_tlvs >= 1) && (pEE->ee_tlv[0].tag == NFA_EE_TAG_HCI_HOST_ID) )
             destHost = pEE->ee_tlv[0].info[0];
         else
-#ifdef NXP_EXT
-            destHost = 0xC0;
-#else
             destHost = 2;
-#endif
 
         // Get a list of existing gates and pipes
         {
@@ -1367,154 +1080,6 @@ void SecureElement::notifyRfFieldEvent (bool isActive)
     ALOGD ("%s: exit", fn);
 }
 
-#ifdef NXP_EXT
-/*Reader over SWP*/
-void SecureElement::notifyEEReaderEvent (int evt, int data)
-{
-    static const char fn [] = "SecureElement::notifyEEReaderEvent";
-    ALOGD ("%s: enter; event=%x", fn, evt);
-
-    JNIEnv* e = NULL;
-    ScopedAttach attach(mNativeData->vm, &e);
-    if (e == NULL)
-    {
-        ALOGE ("%s: jni env is null", fn);
-        return;
-    }
-
-    mMutex.lock();
-    int ret = clock_gettime (CLOCK_MONOTONIC, &mLastRfFieldToggle);
-    if (ret == -1) {
-        ALOGE("%s: clock_gettime failed", fn);
-        // There is no good choice here...
-    }
-    switch (evt) {
-        case NFA_RD_SWP_READER_REQUESTED:
-            ALOGD ("%s: NFA_RD_SWP_READER_REQUESTED for tech %x", fn, data);
-            {
-                jboolean istypeA = false;
-                jboolean istypeB = false;
-
-                if(data && NFA_TECHNOLOGY_MASK_A)
-                    istypeA = true;
-                if(data && NFA_TECHNOLOGY_MASK_B)
-                    istypeB = true;
-
-                e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifySWPReaderRequested,
-                        istypeA, istypeB);
-            }
-            break;
-        case NFA_RD_SWP_READER_START:
-            ALOGD ("%s: NFA_RD_SWP_READER_START", fn);
-            e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifySWPReaderActivated);
-            break;
-        case NFA_RD_SWP_READER_STOP:
-            ALOGD ("%s: NFA_RD_SWP_READER_STOP", fn);
-            e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifySWPReaderDeActivated);
-            break;
-        default:
-            ALOGD ("%s: UNKNOWN EVENT ??", fn);
-            break;
-    }
-
-    mMutex.unlock();
-
-    if (e->ExceptionCheck())
-    {
-        e->ExceptionClear();
-        ALOGE ("%s: fail notify", fn);
-    }
-    ALOGD ("%s: exit", fn);
-}
-void SecureElement::handleEEReaderEvent (int evt, int data, tNFA_HANDLE src)
-{
-    static const char fn [] = "SecureElement::handleEEReaderEvent";
-
-    switch (evt) {
-        case NFA_RD_SWP_READER_REQUESTED:
-            ALOGD ("%s: NFA_RD_SWP_READER_REQUESTED for tech %x", fn, data);
-            /*
-            * 1. Stop the discovery.
-            * 2. MAP the proprietary interface for Reader over SWP.NFC_DiscoveryMap, nfc_api.h
-            * 3. start the discovery with reader req, type and DH configuration.
-            * 4. Notify Nfc Service.
-            */
-            // Disable RF discovery completely while the DH is connected
-            android::startRfDiscovery(false);
-            tNFC_STATUS status;
-            if(src == EE_HANDLE_0xF4) //UICC
-            {
-                SyncEventGuard guard (mDiscMapEvent);
-                ALOGD ("%s: mapping intf for UICC", fn);
-                status = NFC_DiscoveryMap (NFC_NUM_INTERFACE_MAP,(tNCI_DISCOVER_MAPS *)nfc_interface_mapping_uicc
-                        ,SecureElement::discovery_map_cb);
-                if (status != NFA_STATUS_OK)
-                {
-                    ALOGE ("%s: fail intf mapping for UICC; error=0x%X", fn, status);
-                    return ;
-                }
-                mDiscMapEvent.wait ();
-
-            }
-            else if(src == EE_HANDLE_0xF4) //ESE
-            {
-                SyncEventGuard guard (mDiscMapEvent);
-                ALOGD ("%s: mapping intf for ESE", fn);
-                status = NFC_DiscoveryMap (NFC_NUM_INTERFACE_MAP,(tNCI_DISCOVER_MAPS *)nfc_interface_mapping_ese
-                        ,SecureElement::discovery_map_cb);
-                if (status != NFA_STATUS_OK)
-                {
-                    ALOGE ("%s: fail intf mapping for ESE; error=0x%X", fn, status);
-                    return ;
-                }
-                mDiscMapEvent.wait ();
-            }
-            else
-            {
-                ALOGD ("%s: UNKNOWN SOURCE!!! ", fn);
-            }
-            //TODO: configure polling loop as swp reader configuration
-            android::startRfDiscovery(true);
-
-            SecureElement::getInstance().notifyEEReaderEvent(evt,data);
-            break;
-
-        case NFA_RD_SWP_READER_STOP:
-           /*
-            * 1. IF yes than send this info(STOP_READER_EVENT) till FWK level.
-            * 2. MAP the DH interface for Reader over SWP. NFC_DiscoveryMap, nfc_api.h
-            * 3. start the discovery with DH configuration.
-            * 4. Notify Nfc Service.
-            */
-
-            ALOGD ("%s: NFA_RD_SWP_READER_STOP", fn);
-            // Disable RF discovery completely while the DH is connected
-            android::startRfDiscovery(false);
-            {
-                tNFC_STATUS status;
-                SyncEventGuard guard (mDiscMapEvent);
-                ALOGD ("%s: mapping intf for DH", fn);
-                status = NFC_DiscoveryMap (NFC_NUM_INTERFACE_MAP,(tNCI_DISCOVER_MAPS *) nfc_interface_mapping_default
-                        ,SecureElement::discovery_map_cb);
-                if (status != NFA_STATUS_OK)
-                {
-                    ALOGE ("%s: fail intf mapping for DH; error=0x%X", fn, status);
-                    return ;
-                }
-                mDiscMapEvent.wait ();
-            }
-            //TODO: configure polling loop as DH configuration
-            android::startRfDiscovery(true);
-
-            SecureElement::getInstance().notifyEEReaderEvent(evt,data);
-
-            break;
-        default:
-            ALOGD ("%s: UNKNOWN EVENT ??", fn);
-            break;
-    }
-}
-#endif
 /*******************************************************************************
 **
 ** Function:        resetRfFieldStatus
@@ -1528,7 +1093,7 @@ void SecureElement::handleEEReaderEvent (int evt, int data, tNFA_HANDLE src)
 void SecureElement::resetRfFieldStatus ()
 {
     static const char fn [] = "SecureElement::resetRfFieldStatus`";
-    ALOGD ("%s: enter;",fn);
+    ALOGD ("%s: enter;");
 
     mMutex.lock();
     mRfFieldIsOn = false;
@@ -1857,7 +1422,6 @@ void SecureElement::adjustProtocolRoutes (RouteDataSet::Database* db, RouteSelec
     //////////////////////
     // if route database is empty, setup a default route
     //////////////////////
-#ifndef NXP_EXT
     if (db->empty())
     {
         tNFA_HANDLE eeHandle = NFA_EE_HANDLE_DH;
@@ -1871,7 +1435,6 @@ void SecureElement::adjustProtocolRoutes (RouteDataSet::Database* db, RouteSelec
         else
             ALOGE ("%s: fail route to EE; error=0x%X", fn, nfaStat);
     }
-#endif
     ALOGD ("%s: exit", fn);
 }
 
@@ -2015,7 +1578,6 @@ void SecureElement::adjustTechnologyRoutes (RouteDataSet::Database* db, RouteSel
     //////////////////////
     // if route database is empty, setup a default route
     //////////////////////
-#ifndef NXP_EXT
     if (db->empty())
     {
         tNFA_HANDLE eeHandle = NFA_EE_HANDLE_DH;
@@ -2029,7 +1591,6 @@ void SecureElement::adjustTechnologyRoutes (RouteDataSet::Database* db, RouteSel
         else
             ALOGE ("%s: fail route to EE; error=0x%X", fn, nfaStat);
     }
-#endif
     ALOGD ("%s: exit", fn);
 }
 
@@ -2048,9 +1609,7 @@ void SecureElement::adjustTechnologyRoutes (RouteDataSet::Database* db, RouteSel
 void SecureElement::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* eventData)
 {
     static const char fn [] = "SecureElement::nfaEeCallback";
-#ifdef NXP_EXT
-    tNFA_EE_DISCOVER_REQ info = eventData->discover_req;
-#endif
+
     switch (event)
     {
     case NFA_EE_REGISTER_EVT:
@@ -2117,13 +1676,7 @@ void SecureElement::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* eventD
                      (app_init.data[0] == 0x90) &&
                      (app_init.data[1] == 0x00) )
                 {
-#ifdef NXP_EXT
-                    sSecElem.notifyTransactionListenersOfAid (app_init.aid, app_init.len_aid,
-                            app_init.data, app_init.len_data,
-                            SecureElement::getInstance().getGenericEseId(action.ee_handle));
-#else
                     sSecElem.notifyTransactionListenersOfAid (app_init.aid, app_init.len_aid);
-#endif
                 }
             }
             else if (action.trigger == NFC_EE_TRIG_RF_PROTOCOL)
@@ -2138,47 +1691,6 @@ void SecureElement::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* eventD
     case NFA_EE_DISCOVER_REQ_EVT:
         ALOGD ("%s: NFA_EE_DISCOVER_REQ_EVT; status=0x%X; num ee=%u", __FUNCTION__,
                 eventData->discover_req.status, eventData->discover_req.num_ee);
-#ifdef NXP_EXT
-        /* Handle Reader over SWP.
-         * 1. Check if the event is for Reader over SWP.
-         * 2. IF yes than send this info(READER_REQUESTED_EVENT) till FWK level.
-         * 3. Stop the discovery.
-         * 4. MAP the proprietary interface for Reader over SWP.NFC_DiscoveryMap, nfc_api.h
-         * 5. start the discovery with reader req, type and DH configuration.
-         *
-         * 6. IF yes than send this info(STOP_READER_EVENT) till FWK level.
-         * 7. MAP the DH interface for Reader over SWP. NFC_DiscoveryMap, nfc_api.h
-         * 8. start the discovery with DH configuration.
-         */
-        for (UINT8 xx = 0; xx < info.num_ee; xx++)
-        {
-            //for each technology (A, B, F, B'), print the bit field that shows
-            //what protocol(s) is support by that technology
-            ALOGD ("%s   EE[%u] Handle: 0x%04x  PA: 0x%02x  PB: 0x%02x",
-                    fn, xx, info.ee_disc_info[xx].ee_handle,
-                    info.ee_disc_info[xx].pa_protocol,
-                    info.ee_disc_info[xx].pb_protocol);
-
-            if(info.ee_disc_info[xx].pa_protocol !=  0 || info.ee_disc_info[xx].pb_protocol != 0)
-            {
-                uint8_t tech = 0x00;
-                if(info.ee_disc_info[xx].pa_protocol !=  0)
-                    tech |= NFA_TECHNOLOGY_MASK_A;
-                if(info.ee_disc_info[xx].pb_protocol !=  0)
-                    tech |= NFA_TECHNOLOGY_MASK_B;
-                //Reader over SWP - Reader Requested.
-                SecureElement::getInstance().handleEEReaderEvent(NFA_RD_SWP_READER_REQUESTED, tech, info.ee_disc_info[xx].ee_handle);
-                break;
-            }
-            else if(info.ee_disc_info[xx].pa_protocol ==  0xFF || info.ee_disc_info[xx].pb_protocol == 0xFF)
-            {
-                //Reader over SWP - Stop Reader Requested.
-                SecureElement::getInstance().handleEEReaderEvent(NFA_RD_SWP_READER_STOP, 0x00,info.ee_disc_info[xx].ee_handle);
-                break;
-            }
-        }
-#endif
-        /*Set the configuration for UICC/ESE */
         sSecElem.storeUiccInfo (eventData->discover_req);
         break;
 
@@ -2309,9 +1821,7 @@ void SecureElement::nfaHciCallback (tNFA_HCI_EVT event, tNFA_HCI_EVT_DATA* event
 {
     static const char fn [] = "SecureElement::nfaHciCallback";
     ALOGD ("%s: event=0x%X", fn, event);
-#ifdef NXP_EXT
-    int evtSrc = 0xFF;
-#endif
+
     switch (event)
     {
     case NFA_HCI_REGISTER_EVT:
@@ -2360,15 +1870,7 @@ void SecureElement::nfaHciCallback (tNFA_HCI_EVT event, tNFA_HCI_EVT_DATA* event
                     eventData->created.status, eventData->created.pipe, eventData->created.source_gate, eventData->created.dest_host, eventData->created.dest_gate);
             SyncEventGuard guard (sSecElem.mCreatePipeEvent);
             sSecElem.mCommandStatus = eventData->created.status;
-#ifdef NXP_EXT
-            if (eventData->created.dest_gate == 0xF0)
-            {
-                ALOGE("Pipe=0x%x created and updated for se transcieve", eventData->created.pipe);
-                sSecElem.mNewPipeId = eventData->created.pipe;
-            }
-#else
             sSecElem.mNewPipeId = eventData->created.pipe;
-#endif
             sSecElem.mCreatePipeEvent.notifyOne();
         }
         break;
@@ -2410,24 +1912,7 @@ void SecureElement::nfaHciCallback (tNFA_HCI_EVT event, tNFA_HCI_EVT_DATA* event
 
     case NFA_HCI_EVENT_RCVD_EVT:
         ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; code: 0x%X; pipe: 0x%X; data len: %u", fn,
-                eventData->rcvd_evt.evt_code, eventData->rcvd_evt.pipe,
-                eventData->rcvd_evt.evt_len);
-#ifdef NXP_EXT
-        if (eventData->rcvd_evt.pipe == 0x0A) // UICC
-        {
-            ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; source UICC",fn);
-            evtSrc = SecureElement::getInstance().getGenericEseId(EE_HANDLE_0xF4 &
-                    ~NFA_HANDLE_GROUP_EE);
-        }
-        else if (eventData->rcvd_evt.pipe == 0x16) // ESE
-        {
-            ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; source ESE",fn);
-            evtSrc = SecureElement::getInstance().getGenericEseId(EE_HANDLE_0xF3 &
-                    ~NFA_HANDLE_GROUP_EE);
-        }
-
-        ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; ################################### ", fn);
-#endif
+                eventData->rcvd_evt.evt_code, eventData->rcvd_evt.pipe, eventData->rcvd_evt.evt_len);
         if ((eventData->rcvd_evt.pipe == STATIC_PIPE_0x70) || (eventData->rcvd_evt.pipe == STATIC_PIPE_0x71))
         {
             ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; data from static pipe", fn);
@@ -2446,48 +1931,15 @@ void SecureElement::nfaHciCallback (tNFA_HCI_EVT event, tNFA_HCI_EVT_DATA* event
         {
             ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; NFA_HCI_EVT_TRANSACTION", fn);
             // If we got an AID, notify any listeners
-            if ((eventData->rcvd_evt.evt_len > 3) && (eventData->rcvd_evt.p_evt_buf[0] == 0x81))
-#ifdef NXP_EXT
-            {
-                int aidlen = eventData->rcvd_evt.p_evt_buf[1];
-                UINT8* data = NULL;
-                UINT8 datalen = 0;
-                if ((eventData->rcvd_evt.evt_len > 2+aidlen) &&
-                        (eventData->rcvd_evt.p_evt_buf[2+aidlen] == 0x82))
-                {
-                    datalen = eventData->rcvd_evt.p_evt_buf[2+aidlen+1];
-                    data  = &eventData->rcvd_evt.p_evt_buf[2+aidlen+2];
-                }
-                sSecElem.notifyTransactionListenersOfAid (&eventData->rcvd_evt.p_evt_buf[2],
-                        aidlen,data,datalen,evtSrc);
-            }
+            if ((eventData->rcvd_evt.evt_len > 3) && (eventData->rcvd_evt.p_evt_buf[0] == 0x81) )
+                sSecElem.notifyTransactionListenersOfAid (&eventData->rcvd_evt.p_evt_buf[2], eventData->rcvd_evt.p_evt_buf[1]);
         }
-        else if (eventData->rcvd_evt.evt_code == NFA_HCI_EVT_CONNECTIVITY)
-        {
-            ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; NFA_HCI_EVT_CONNECTIVITY", fn);
-            int pipe = (eventData->rcvd_evt.pipe);
-            sSecElem.notifyConnectivityListeners (evtSrc);
-        }
-        else
-        {
-            ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; ################ eventData->rcvd_evt.evt_code \
-                    = 0x%x , NFA_HCI_EVT_CONNECTIVITY = 0x%x", fn, eventData->rcvd_evt.evt_code,
-                    NFA_HCI_EVT_CONNECTIVITY);
-
-            ALOGD ("%s: NFA_HCI_EVENT_RCVD_EVT; ################################### ", fn);
-
-        }
-#else
-                sSecElem.notifyTransactionListenersOfAid (&eventData->rcvd_evt.p_evt_buf[2],
-                        eventData->rcvd_evt.p_evt_buf[1]);
-        }
-#endif
         break;
 
     case NFA_HCI_SET_REG_RSP_EVT: //received response to write registry command
         {
             tNFA_HCI_REGISTRY& registry = eventData->registry;
-            ALOGD ("%s: NFA_HCI_SET_REG_RSP_EVT; status=0x%X; pipe=0x%X", fn,registry.status, registry.pipe);
+            ALOGD ("%s: NFA_HCI_SET_REG_RSP_EVT; status=0x%X; pipe=0x%X", fn, registry.status, registry.pipe);
             SyncEventGuard guard (sSecElem.mRegistryEvent);
             sSecElem.mRegistryEvent.notifyOne ();
             break;
@@ -2538,15 +1990,8 @@ tNFA_HANDLE SecureElement::getDefaultEeHandle ()
     {
         if (mActiveSeOverride && (overrideEeHandle != mEeInfo[xx].ee_handle))
             continue; //skip all the EE's that are ignored
-        if ((mEeInfo[xx].num_interface != 0)
-#ifndef NXP_EXT
-             &&
-            (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS)
-#else
-            &&
-            (mEeInfo[xx].ee_handle == EE_HANDLE_0xF3 || mEeInfo[xx].ee_handle == EE_HANDLE_0xF4)
-#endif
-            &&
+        if ((mEeInfo[xx].num_interface != 0) &&
+            (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS) &&
             (mEeInfo[xx].ee_status != NFC_NFCEE_STATUS_INACTIVE))
             return (mEeInfo[xx].ee_handle);
     }
@@ -2681,37 +2126,7 @@ bool SecureElement::routeToSecureElement ()
         else
             ALOGE ("%s: fail to start UICC listen", fn);
     }
-#ifdef NXP_EXT
-    tNFA_EE_INFO* eeinfo = findEeByHandle(mActiveEeHandle);
-    if (eeinfo!=NULL){
-        if (eeinfo->la_protocol == 0x00 && eeinfo->lb_protocol != 0x00 )
-        {
-            UINT8 val[] = {0x00};
 
-            ALOGD ("%s: No tech A on EE ", fn);
-
-            ALOGD ("%s: Configure TypeB", __FUNCTION__);
-            {
-                SyncEventGuard guard (android::sNfaSetConfigEvent);
-                nfaStat = NFA_SetConfig(NCI_PARAM_ID_LA_SEL_INFO, sizeof(UINT8), val);
-                if (nfaStat == NFA_STATUS_OK)
-                    android::sNfaSetConfigEvent.wait ();
-            }
-        }
-        else
-        {
-            UINT8 val[] = {0x60};
-
-            ALOGD ("%s: tech A on EE ", fn);
-            {
-                SyncEventGuard guard (android::sNfaSetConfigEvent);
-                nfaStat = NFA_SetConfig(NCI_PARAM_ID_LA_SEL_INFO, sizeof(UINT8), val);
-                if (nfaStat == NFA_STATUS_OK)
-                    android::sNfaSetConfigEvent.wait ();
-            }
-        }
-    }
-#endif
     ALOGD ("%s: exit; ok=%u", fn, retval);
     return retval;
 }
@@ -2746,11 +2161,7 @@ bool SecureElement::routeToDefault ()
         return true;
     }
 
-#ifdef NXP_EXT
-    if (mActiveEeHandle != NFA_HANDLE_INVALID && CEFromHost::getInstance().isEnabled() != true)
-#else
     if (mActiveEeHandle != NFA_HANDLE_INVALID)
-#endif
     {
         ALOGD ("%s: stop UICC listen; EE h=0x%X", fn, mActiveEeHandle);
         SyncEventGuard guard (mUiccListenEvent);
@@ -2789,61 +2200,3 @@ bool SecureElement::isBusy ()
     ALOGD ("SecureElement::isBusy: %u", retval);
     return retval;
 }
-
-#ifdef NXP_EXT
-jint SecureElement::getGenericEseId(tNFA_HANDLE handle)
-{
-    jint ret = 0xFF;
-
-    //Map the actual handle to generic id
-    if(handle == (EE_HANDLE_0xF3 & ~NFA_HANDLE_GROUP_EE) ) //ESE - 0xC0
-    {
-        ret = 0x01;
-    }
-    else if(handle ==  (EE_HANDLE_0xF4 & ~NFA_HANDLE_GROUP_EE) ) //UICC - 0x02
-    {
-        ret = 0x02;
-    }
-
-    return ret;
-}
-
-tNFA_HANDLE SecureElement::getEseHandleFromGenericId(jint eseId)
-{
-    UINT16 handle = NFA_HANDLE_INVALID;
-
-
-    //Map the generic id to actual handle
-    if(eseId == 0x01) //ESE
-    {
-        handle = EE_HANDLE_0xF3; //0x4C0;
-    }
-    else if(eseId == 0x02) //UICC
-    {
-        handle = EE_HANDLE_0xF4; //0x402;
-    }
-    else if(eseId == 0x04)
-    {
-        handle = NFA_EE_HANDLE_DH; //0x400;
-    }
-    return handle;
-}
-bool SecureElement::SecEle_Modeset(UINT8 type)
-{
-    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
-    bool retval = true;
-
-    SyncEventGuard guard (mEeSetModeEvent);
-    ALOGD ("set EE mode = 0x%X", type);
-    if ((nfaStat = NFA_EeModeSet (0x4C0, type)) == NFA_STATUS_OK)
-    {
-        mEeSetModeEvent.wait ();
-    }
-    else
-    {
-        retval = false;
-        ALOGE ("NFA_EeModeSet failed; error=0x%X",nfaStat);
-    }
-    return retval;
-}
-#endif

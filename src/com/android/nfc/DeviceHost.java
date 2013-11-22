@@ -13,28 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/******************************************************************************
- *
- *  The original Work has been changed by NXP Semiconductors.
- *
- *  Copyright (C) 2013 NXP Semiconductors
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- *
- ******************************************************************************/
+
 package com.android.nfc;
 
-import android.nfc.MultiSERoutingInfo;
 import android.nfc.NdefMessage;
 import android.os.Bundle;
 
@@ -52,25 +33,7 @@ public interface DeviceHost {
         /**
          * Notifies transaction
          */
-        public void onCardEmulationAidSelected(byte[] aid, byte[] data, int evtSrc);
-        public void onCardEmulationAidSelected(byte[] aid, byte[] data);
         public void onCardEmulationAidSelected(byte[] aid);
-
-        /**
-         * Notifies connectivity event from the SE (UICC)
-         */
-        public void onConnectivityEvent();
-
-         /**
-         * Notifies connectivity event from the SE
-         */
-        public void onConnectivityEvent(int evtSrc);
-
-        /**
-         * Notifies about multiple card presented to
-         * emvco reader.
-         */
-        public void onEmvcoMultiCardDetectedEvent();
 
         /**
          * Notifies P2P Device detected, to activate LLCP link
@@ -103,28 +66,6 @@ public interface DeviceHost {
         public void onSeEmvCardRemoval();
 
         public void onSeMifareAccess(byte[] block);
-
-        public void onUiccReaderModeDetected(TagEndpoint tag);
-
-        /**
-         * Notifies Host Card Emulation Activated event
-         */
-        public void onCEFromHostActivatedEvent();
-
-        /**
-         * Notifies Host Card Emulation DeActivated event
-         */
-        public void onCEFromHostDeActivatedEvent();
-
-        /**
-         * Notifies SWP Reader Events.
-         */
-        public void onSWPReaderRequestedEvent(boolean istechA, boolean istechB);
-
-        public void onSWPReaderActivatedEvent();
-
-        public void onSWPReaderDeActivatedEvent();
-
     }
 
     public interface TagEndpoint {
@@ -254,26 +195,12 @@ public interface DeviceHost {
 
     public int[] doGetSecureElementList();
 
-    public void doSelectSecureElement(int seID);
-
-    public int GetDefaultSE();
-
-    public int[] getSecureElementTechList();
-
-    public byte[] getSecureElementUid();
-
-    public int setEmvCoPollProfile(boolean enable, int route);
-
-    public void doDeselectSecureElement(int seID);
-
     public void doSelectSecureElement();
 
     public void doDeselectSecureElement();
 
     public LlcpConnectionlessSocket createLlcpConnectionlessSocket(int nSap, String sn)
             throws LlcpException;
-
-    public void doUiccSetSwpMode(int mode);
 
     public LlcpServerSocket createLlcpServerSocket(int nSap, String sn, int miu,
             int rw, int linearBufferLength) throws LlcpException;
@@ -312,12 +239,4 @@ public interface DeviceHost {
     int getDefaultLlcpRwSize();
 
     String dump();
-
-    int getChipVer();
-
-    int JCOSDownload();
-
-    public boolean doSetMultiSERoutingTable(MultiSERoutingInfo[] routingInfo);
-
-    public boolean doSetMultiSEState(boolean state);
 }
