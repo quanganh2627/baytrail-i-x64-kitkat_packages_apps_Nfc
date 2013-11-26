@@ -13,6 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+ /******************************************************************************
+ *
+ *  The original Work has been changed by NXP Semiconductors.
+ *
+ *  Copyright (C) 2013 NXP Semiconductors
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ ******************************************************************************/
 #include "OverrideLog.h"
 #include "SecureElement.h"
 #include "JavaClassConstants.h"
@@ -23,6 +42,21 @@
 namespace android
 {
 
+#ifdef NXP_EXT
+extern void startRfDiscovery (bool isStart);
+extern bool isDiscoveryStarted();
+extern int gGeneralTransceiveTimeout;
+static SyncEvent            sNfaVSCResponseEvent;
+static bool sRfEnabled;
+
+static void nfaVSCCallback(UINT8 event, UINT16 param_len, UINT8 *p_param);
+
+static void nfaVSCCallback(UINT8 event, UINT16 param_len, UINT8 *p_param)
+{
+    SyncEventGuard guard (sNfaVSCResponseEvent);
+    sNfaVSCResponseEvent.notifyOne ();
+}
+#endif
 
 extern void com_android_nfc_NfcManager_disableDiscovery (JNIEnv* e, jobject o);
 extern void com_android_nfc_NfcManager_enableDiscovery (JNIEnv* e, jobject o, jint mode);
@@ -68,11 +102,38 @@ static jint nativeNfcSecureElement_doOpenSecureElementConnection (JNIEnv*, jobje
     PowerSwitch::getInstance ().setLevel (PowerSwitch::FULL_POWER);
     PowerSwitch::getInstance ().setModeOn (PowerSwitch::SE_CONNECTED);
 
+#ifdef NXP_EXT
+    {
+
+        sRfEnabled = isDiscoveryStarted();
+        if (sRfEnabled) {
+            // Stop RF Discovery if we were polling
+            startRfDiscovery (false);
+        }
+
+        UINT8 param[] = {0x00}; //Disable standby
+        SyncEventGuard guard (sNfaVSCResponseEvent);
+        tNFA_STATUS stat = NFA_SendVsCommand (0x00,0x01,param,nfaVSCCallback);
+        if(NFA_STATUS_OK == stat)
+        {
+            sNfaVSCResponseEvent.wait(); //wait for NFA VS command to finish
+
+        }
+
+        startRfDiscovery (true);
+    }
+#endif
     //if controller is not routing AND there is no pipe connected,
     //then turn on the sec elem
     if (! se.isBusy())
+    {
+#ifdef NXP_EXT
+        stat = se.activate(0x01);
+#else
         stat = se.activate(0);
 
+#endif
+    }
     if (stat)
     {
         //establish a pipe to sec elem
@@ -116,7 +177,26 @@ static jboolean nativeNfcSecureElement_doDisconnectSecureElementConnection (JNIE
 {
     ALOGD("%s: enter; handle=0x%04x", __FUNCTION__, handle);
     bool stat = false;
+#ifdef NXP_EXT
+    {
+        sRfEnabled = isDiscoveryStarted();
+        if (sRfEnabled) {
+            // Stop RF Discovery if we were polling
+            startRfDiscovery (false);
+        }
 
+        UINT8 param[] = {0x01};//Enable standby
+        SyncEventGuard guard (sNfaVSCResponseEvent);
+        tNFA_STATUS stat = NFA_SendVsCommand (0x00,0x01,param,nfaVSCCallback);
+        if(NFA_STATUS_OK == stat)
+        {
+            sNfaVSCResponseEvent.wait(); //wait for NFA VS command to finish
+
+        }
+
+        startRfDiscovery (true);
+    }
+#endif
     stat = SecureElement::getInstance().disconnectEE (handle);
 
     //if controller is not routing AND there is no pipe connected,
