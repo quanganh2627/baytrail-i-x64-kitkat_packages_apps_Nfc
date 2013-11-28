@@ -29,6 +29,11 @@ extern "C"
     #include "nfa_ee_api.h"
 }
 
+#ifdef NXP_EXT
+#define NXP_ALL_PROTOCOLS   NFA_PROTOCOL_MASK_ISO_DEP 
+#define NXP_ALL_TECHNOLOGIES (NFA_TECHNOLOGY_MASK_A | NFA_TECHNOLOGY_MASK_B)
+#endif
+
 class RoutingManager
 {
 public:
@@ -56,6 +61,9 @@ private:
     // Fields below are final after initialize()
     nfc_jni_native_data* mNativeData;
     int mDefaultEe;
+#ifdef NXP_EXT
+    int mDefaultEeDeviceOff;
+#endif
     SyncEvent mEeRegisterEvent;
     SyncEvent mRoutingEvent;
 };
