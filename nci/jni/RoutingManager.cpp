@@ -59,6 +59,10 @@ bool RoutingManager::initialize (nfc_jni_native_data* native)
     else
         mDefaultEe = 0x00;
 
+#ifdef NXP_EXT
+    mDefaultEeDeviceOff = 0x402;
+#endif
+
     ALOGD("%s: default route is 0x%02X", fn, mDefaultEe);
     setDefaultRouting();
     return true;
@@ -74,20 +78,91 @@ void RoutingManager::setDefaultRouting()
 {
     tNFA_STATUS nfaStat;
     SyncEventGuard guard (mRoutingEvent);
+
+#ifdef NXP_EXT
+    // Default routing for NFC-A and NFC-B technology
+    if(mDefaultEeDeviceOff != mDefaultEe)
+    {
+        nfaStat = NFA_EeSetDefaultTechRouting (mDefaultEeDeviceOff,
+                0, NXP_ALL_TECHNOLOGIES, 0);
+        if (nfaStat == NFA_STATUS_OK)
+            mRoutingEvent.wait ();
+        else
+            ALOGE ("Fail to set default tech routing for SE %0X", mDefaultEeDeviceOff);
+
+        nfaStat = NFA_EeSetDefaultTechRouting (mDefaultEe,
+                NXP_ALL_TECHNOLOGIES, 0, 0);
+        if (nfaStat == NFA_STATUS_OK)
+            mRoutingEvent.wait ();
+        else
+           ALOGE ("Fail to set default tech routing for SE %0X", mDefaultEe);
+     }
+     else
+     {
+        nfaStat = NFA_EeSetDefaultTechRouting (mDefaultEe,
+                NXP_ALL_TECHNOLOGIES, NXP_ALL_TECHNOLOGIES, 0);
+        if (nfaStat == NFA_STATUS_OK)
+            mRoutingEvent.wait ();
+        else
+           ALOGE ("Fail to set default tech routing for SE %0X", mDefaultEe);
+     }
+#else
     // Default routing for NFC-A technology
     nfaStat = NFA_EeSetDefaultTechRouting (mDefaultEe, 0x01, 0, 0);
     if (nfaStat == NFA_STATUS_OK)
         mRoutingEvent.wait ();
     else
         ALOGE ("Fail to set default tech routing");
+#endif
 
     // Default routing for IsoDep protocol
+#ifdef NXP_EXT
+    if(mDefaultEeDeviceOff != mDefaultEe)
+    {
+        nfaStat = NFA_EeSetDefaultProtoRouting(mDefaultEeDeviceOff,
+                0, NXP_ALL_PROTOCOLS, 0);
+
+        if (nfaStat == NFA_STATUS_OK)
+            mRoutingEvent.wait ();
+        else
+            ALOGE ("Fail to set default proto routing for SE %0X", mDefaultEeDeviceOff);
+
+        nfaStat = NFA_EeSetDefaultProtoRouting(mDefaultEe,
+                NXP_ALL_PROTOCOLS, 0, 0);
+
+        if (nfaStat == NFA_STATUS_OK)
+            mRoutingEvent.wait ();
+        else
+           ALOGE ("Fail to set default proto routing for SE %0X", mDefaultEe);
+     }
+     else
+     {
+        nfaStat = NFA_EeSetDefaultTechRouting (mDefaultEe,
+                NXP_ALL_PROTOCOLS, NXP_ALL_PROTOCOLS, 0);
+        if (nfaStat == NFA_STATUS_OK)
+            mRoutingEvent.wait ();
+        else
+           ALOGE ("Fail to set default proto routing for SE %0X", mDefaultEe);
+     }
+#else
     nfaStat = NFA_EeSetDefaultProtoRouting(mDefaultEe, NFA_PROTOCOL_MASK_ISO_DEP, 0, 0);
     if (nfaStat == NFA_STATUS_OK)
         mRoutingEvent.wait ();
     else
         ALOGE ("Fail to set default proto routing");
+#endif
 
+#ifdef NXP_EXT
+    // Tell the UICC to only listen on Nfc-A and Nfc-B
+    nfaStat = NFA_CeConfigureUiccListenTech (mDefaultEe, NXP_ALL_TECHNOLOGIES);
+    if (nfaStat != NFA_STATUS_OK)
+        ALOGE ("Failed to configure UICC listen technologies");
+
+    // Tell the host-routing to only listen on Nfc-A and Nfc-B
+    nfaStat = NFA_CeSetIsoDepListenTech(NXP_ALL_TECHNOLOGIES);
+    if (nfaStat != NFA_STATUS_OK)
+        ALOGE ("Failed to configure CE IsoDep technologies");
+#else
     // Tell the UICC to only listen on Nfc-A
     nfaStat = NFA_CeConfigureUiccListenTech (mDefaultEe, 0x01);
     if (nfaStat != NFA_STATUS_OK)
@@ -97,6 +172,7 @@ void RoutingManager::setDefaultRouting()
     nfaStat = NFA_CeSetIsoDepListenTech(0x01);
     if (nfaStat != NFA_STATUS_OK)
         ALOGE ("Failed to configure CE IsoDep technologies");
+#endif
 
     // Register a wild-card for AIDs routed to the host
     nfaStat = NFA_CeRegisterAidOnDH (NULL, 0, stackCallback);
@@ -113,7 +189,16 @@ bool RoutingManager::addAidRouting(const UINT8* aid, UINT8 aidLen, int route)
 {
     static const char fn [] = "RoutingManager::addAidRouting";
     ALOGD ("%s: enter", fn);
+
+#ifdef NXP_EXT
+    // Use battery assisted mode only when route is not the host !!!
+    UINT8 powermode = (route == 0x0) ? 0x01 : 0x03;
+
+    tNFA_STATUS nfaStat = NFA_EeAddAidRouting(route, aidLen, (UINT8*) aid, powermode);
+#else
     tNFA_STATUS nfaStat = NFA_EeAddAidRouting(route, aidLen, (UINT8*) aid, 0x01);
+#endif
+
     if (nfaStat == NFA_STATUS_OK)
     {
         ALOGD ("%s: routed AID", fn);
