@@ -765,7 +765,7 @@ void emergency_recovery(struct nfc_jni_native_data *nat) {
             sleep(t);
         }
     }
-    if (TRUE == nat->isWiredMode)//davis_JBMR2
+    if (NULL != nat && TRUE == nat->isWiredMode)
     {
         sleep(22);
     }
@@ -2854,11 +2854,21 @@ static jobject com_android_nfc_NfcManager_doCreateLlcpServiceSocket(JNIEnv *e, j
     phLibNfc_Handle hLlcpSocket;
     phLibNfc_Llcp_sSocketOptions_t sOptions;
     phNfc_sData_t sWorkingBuffer;
-   phNfc_sData_t serviceName;
+    phNfc_sData_t serviceName;
     struct nfc_jni_native_data *nat;
     jobject serviceSocket = NULL;
     jclass clsNativeLlcpServiceSocket;
     jfieldID f;
+
+    nfc_jni_listen_data_t * pListenData = NULL;
+    nfc_jni_native_monitor * pMonitor = nfc_jni_get_monitor();
+
+    pListenData = (nfc_jni_listen_data_t*)malloc(sizeof(nfc_jni_listen_data_t));
+    if (pListenData == NULL)
+    {
+       LOGE("Failed to create structure to handle server LLCP connection request");
+       return NULL;
+    }
 
     /* Retrieve native structure address */
     nat = nfc_jni_get_nat(e, o);
@@ -2873,7 +2883,7 @@ static jobject com_android_nfc_NfcManager_doCreateLlcpServiceSocket(JNIEnv *e, j
 
 
     /* Create socket */
-   TRACE("phLibNfc_Llcp_Socket(hRemoteDevice=0x%08x, eType=phFriNfc_LlcpTransport_eConnectionOriented, ...)", hLlcpHandle);
+    TRACE("phLibNfc_Llcp_Socket(hRemoteDevice=0x%08x, eType=phFriNfc_LlcpTransport_eConnectionOriented, ...)", hLlcpHandle);
     REENTRANCE_LOCK();
     ret = phLibNfc_Llcp_Socket(phFriNfc_LlcpTransport_eConnectionOriented,
                               &sOptions,
@@ -2889,15 +2899,15 @@ static jobject com_android_nfc_NfcManager_doCreateLlcpServiceSocket(JNIEnv *e, j
         lastErrorStatus = ret;
         goto error;
     }
-   TRACE("phLibNfc_Llcp_Socket() returned 0x%04x[%s]", ret, nfc_jni_get_status_name(ret));
+    TRACE("phLibNfc_Llcp_Socket() returned 0x%04x[%s]", ret, nfc_jni_get_status_name(ret));
 
     /* Service socket */
-   if (sn == NULL) {
-        serviceName.buffer = NULL;
-        serviceName.length = 0;
-   } else {
-        serviceName.buffer = (uint8_t*) e->GetStringUTFChars(sn, NULL);
-        serviceName.length = (uint32_t) e->GetStringUTFLength(sn);
+    if (sn == NULL) {
+         serviceName.buffer = NULL;
+         serviceName.length = 0;
+    } else {
+         serviceName.buffer = (uint8_t*) e->GetStringUTFChars(sn, NULL);
+         serviceName.length = (uint32_t) e->GetStringUTFLength(sn);
     }
 
     /* Bind socket */
@@ -2948,6 +2958,9 @@ static jobject com_android_nfc_NfcManager_doCreateLlcpServiceSocket(JNIEnv *e, j
         ALOGE("Llcp Socket get object class error");
         goto error;
     }
+
+    pListenData->pServerSocket = hLlcpSocket;
+    LIST_INSERT_HEAD(&pMonitor->server_socket_head, pListenData, entries);
 
     /* Set socket handle */
     f = e->GetFieldID(clsNativeLlcpServiceSocket, "mHandle", "I");
@@ -3121,6 +3134,7 @@ static void com_android_nfc_NfcManager_doSetP2pTargetModes(JNIEnv *e, jobject o,
 
 static bool performDownload(struct nfc_jni_native_data* nat, bool takeLock) {
     bool result = FALSE;
+    bool drv_result = TRUE;
     int load_result;
     bool wasDisabled = FALSE;
     uint8_t OutputBuffer[1];
@@ -3210,7 +3224,11 @@ static bool performDownload(struct nfc_jni_native_data* nat, bool takeLock) {
     /* Deinitialize Driver */
     if (wasDisabled)
     {
-        result = nfc_jni_unconfigure_driver(nat);
+        drv_result = nfc_jni_unconfigure_driver(nat);
+        if (!drv_result)
+        {
+            emergency_recovery(NULL);
+        }
     }
     if (takeLock)
     {
@@ -3229,9 +3247,8 @@ static jboolean com_android_nfc_NfcManager_doDownload(JNIEnv *e, jobject o)
 
 static jstring com_android_nfc_NfcManager_doDump(JNIEnv *e, jobject o)
 {
-    char buffer[100];
-    //snprintf(buffer, sizeof(buffer), "libnfc llc error_count=%u", libnfc_llc_error_count);
-    return e->NewStringUTF(buffer);
+    //nothing to report, simply notify we reached this function
+    return e->NewStringUTF(__FUNCTION__);
 }
 
 #if SNI

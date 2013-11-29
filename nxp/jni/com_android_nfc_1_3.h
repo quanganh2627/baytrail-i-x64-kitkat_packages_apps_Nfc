@@ -202,6 +202,10 @@ typedef struct nfc_jni_native_monitor
 
    /* List used to track incoming socket requests (and associated sync variables) */
    LIST_HEAD(, nfc_jni_listen_data) incoming_socket_head;
+
+   /* List used to track server sockets and their closing status*/
+   LIST_HEAD(, nfc_jni_listen_data) server_socket_head;
+
    pthread_mutex_t incoming_socket_mutex;
    pthread_cond_t  incoming_socket_cond;
 
@@ -227,6 +231,9 @@ typedef struct nfc_jni_listen_data
 
    /* LLCP socket created from the connection request */
    phLibNfc_Handle pIncomingSocket;
+
+   /* Status flag for closing of LLCP server socket */
+   bool bServerSocketClosing;
 
    /* List entries */
    LIST_ENTRY(nfc_jni_listen_data) entries;
