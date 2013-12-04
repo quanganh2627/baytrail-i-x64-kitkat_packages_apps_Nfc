@@ -423,7 +423,11 @@ void RoutingManager::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* event
                      (app_init.data[0] == 0x90) &&
                      (app_init.data[1] == 0x00) )
                 {
+#ifdef NXP_EXT
+                    se.notifyTransactionListenersOfAid (app_init.aid, app_init.len_aid, app_init.data, app_init.len_data, 2 /*UICC*/);
+#else
                     se.notifyTransactionListenersOfAid (app_init.aid, app_init.len_aid);
+#endif
                 }
             }
             else if (action.trigger == NFC_EE_TRIG_RF_PROTOCOL)

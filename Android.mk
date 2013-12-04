@@ -20,6 +20,8 @@ LOCAL_STATIC_JAVA_LIBRARIES := NfcLogTags \
                                 CwsServiceMgr \
                                 CsmClient
 
+LOCAL_JAVA_LIBRARIES := com.intel.nfc.adapteraddon
+
 LOCAL_REQUIRED_MODULES  := libnfc_jni
 
 LOCAL_PROGUARD_ENABLED := disabled
@@ -46,6 +48,8 @@ LOCAL_CERTIFICATE := platform
 LOCAL_STATIC_JAVA_LIBRARIES := NfcLogTags \
                                 CwsServiceMgr \
                                 CsmClient
+
+LOCAL_JAVA_LIBRARIES := com.intel.nfc.adapteraddon
 
 LOCAL_REQUIRED_MODULES  := libnfc_nci_jni
 

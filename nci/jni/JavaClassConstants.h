@@ -20,6 +20,9 @@ namespace android
 {
     extern jmethodID gCachedNfcManagerNotifyNdefMessageListeners;
     extern jmethodID gCachedNfcManagerNotifyTransactionListeners;
+#ifdef NXP_EXT
+    extern jmethodID gCachedNfcManagerNotifyConnectivityListeners;
+#endif
     extern jmethodID gCachedNfcManagerNotifyLlcpLinkActivation;
     extern jmethodID gCachedNfcManagerNotifyLlcpLinkDeactivated;
     extern jmethodID gCachedNfcManagerNotifyLlcpFirstPacketReceived;

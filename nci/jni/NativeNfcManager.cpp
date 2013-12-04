@@ -92,6 +92,9 @@ namespace android
 {
     jmethodID               gCachedNfcManagerNotifyNdefMessageListeners;
     jmethodID               gCachedNfcManagerNotifyTransactionListeners;
+#ifdef NXP_EXT
+    jmethodID               gCachedNfcManagerNotifyConnectivityListeners;
+#endif
     jmethodID               gCachedNfcManagerNotifyLlcpLinkActivation;
     jmethodID               gCachedNfcManagerNotifyLlcpLinkDeactivated;
     jmethodID               gCachedNfcManagerNotifyLlcpFirstPacketReceived;
@@ -590,14 +593,22 @@ static jboolean nfcManager_initNativeStruc (JNIEnv* e, jobject o)
     nat->manager = e->NewGlobalRef(o);
 
     ScopedLocalRef<jclass> cls(e, e->GetObjectClass(o));
+
     jfieldID f = e->GetFieldID(cls.get(), "mNative", "I");
     e->SetIntField(o, f, (jint)nat);
 
     /* Initialize native cached references */
     gCachedNfcManagerNotifyNdefMessageListeners = e->GetMethodID(cls.get(),
             "notifyNdefMessageListeners", "(Lcom/android/nfc/dhimpl/NativeNfcTag;)V");
+#ifdef NXP_EXT
+    gCachedNfcManagerNotifyTransactionListeners = e->GetMethodID(cls.get(),
+            "notifyTransactionListeners", "([B[BI)V");
+    gCachedNfcManagerNotifyConnectivityListeners = e->GetMethodID(cls.get(),
+            "notifyConnectivityListeners", "(I)V");
+#else
     gCachedNfcManagerNotifyTransactionListeners = e->GetMethodID(cls.get(),
             "notifyTransactionListeners", "([B)V");
+#endif
     gCachedNfcManagerNotifyLlcpLinkActivation = e->GetMethodID(cls.get(),
             "notifyLlcpLinkActivation", "(Lcom/android/nfc/dhimpl/NativeP2pDevice;)V");
     gCachedNfcManagerNotifyLlcpLinkDeactivated = e->GetMethodID(cls.get(),
