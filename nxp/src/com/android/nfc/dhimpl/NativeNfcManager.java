@@ -458,4 +458,15 @@ public class NativeNfcManager implements DeviceHost {
         mListener.onSeMifareAccess(block);
     }
 
+    /**
+     * Notifies transaction (PN547 specific)
+     */
+    private void notifyTransactionListeners(byte[] aid, byte[] data, int evtSrc) {
+    }
+
+    /**
+     * Notifies transaction (PN547 specific)
+     */
+    private void notifyConnectivityListeners(int evtSrc) {
+    }
 }
