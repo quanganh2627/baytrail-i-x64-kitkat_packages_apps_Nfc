@@ -73,7 +73,6 @@ import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
-import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.Log;
@@ -86,13 +85,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ExecutionException;
-
-import com.android.internal.telephony.TelephonyIntents;
-import com.android.internal.telephony.IccCardConstants;
-
-import com.intel.cws.cwsservicemanager.CsmException;
-import com.intel.cws.cwsservicemanagerclient.CsmClient;
-import com.intel.cws.cwsservicemanagerclient.CsmEfBootstrap;
 
 public class NfcService implements DeviceHostListener {
     private static final String ACTION_MASTER_CLEAR_NOTIFICATION = "android.intent.action.MASTER_CLEAR_NOTIFICATION";
@@ -113,6 +105,7 @@ public class NfcService implements DeviceHostListener {
     public static final String PREF = "NfcServicePrefs";
 
     static final String PREF_NFC_ON = "nfc_on";
+    static final boolean NFC_ON_DEFAULT = true;
     static final String PREF_NDEF_PUSH_ON = "ndef_push_on";
     static final boolean NDEF_PUSH_ON_DEFAULT = true;
     static final String PREF_FIRST_BEAM = "first_beam";
@@ -142,7 +135,6 @@ public class NfcService implements DeviceHostListener {
     static final int TASK_DISABLE = 2;
     static final int TASK_BOOT = 3;
     static final int TASK_EE_WIPE = 4;
-    static final int TASK_RESET = 5;
 
     // Screen state, used by mScreenState
     static final int SCREEN_STATE_UNKNOWN = 0;
@@ -222,8 +214,6 @@ public class NfcService implements DeviceHostListener {
     public static final String ACTION_SE_LISTEN_DEACTIVATED =
             "com.android.nfc_extras.action.SE_LISTEN_DEACTIVATED";
 
-    private boolean mIsLocked = false;
-
     // NFC Execution Environment
     // fields below are protected by this
     private NativeNfcSecureElement mSecureElement;
@@ -247,7 +237,6 @@ public class NfcService implements DeviceHostListener {
     boolean mNfcPollingEnabled;  // current Device Host state of NFC-C polling
     boolean mHostRouteEnabled;   // current Device Host state of host-based routing
     boolean mReaderModeEnabled;  // current Device Host state of reader mode
-    boolean mUseCsm;             // if set, we'll use CSM to request system clock (e.g. from modem)
     ReaderModeParams mReaderModeParams;
 
     List<PackageInfo> mInstalledPackages; // cached version of installed packages
@@ -291,15 +280,9 @@ public class NfcService implements DeviceHostListener {
 
     private static NfcService sService;
 
-    private static boolean mNfcOnDefault;
-
     public static void enforceAdminPerm(Context context) {
         context.enforceCallingOrSelfPermission(ADMIN_PERM, ADMIN_PERM_ERROR);
     }
-
-    private CsmClientNfc mCsmClient;
-
-    private static final int MODEM_WAIT_TIMEOUT = 60000;
 
     public static void validateUserId(int userId) {
         if (userId != UserHandle.getCallingUserId()) {
@@ -493,8 +476,6 @@ public class NfcService implements DeviceHostListener {
 
         mNfceeAccessControl = new NfceeAccessControl(mContext);
 
-        mNfcOnDefault = mContext.getResources().getBoolean(R.bool.nfc_on_default);
-
         mPrefs = mContext.getSharedPreferences(PREF, Context.MODE_PRIVATE);
         mPrefsEditor = mPrefs.edit();
 
@@ -502,22 +483,6 @@ public class NfcService implements DeviceHostListener {
         mIsNdefPushEnabled = mPrefs.getBoolean(PREF_NDEF_PUSH_ON, NDEF_PUSH_ON_DEFAULT);
 
         mIsDebugBuild = "userdebug".equals(Build.TYPE) || "eng".equals(Build.TYPE);
-
-        mUseCsm = Boolean.parseBoolean(
-                SystemProperties.get("ro.nfc.use_csm", "true")); // true  -> use CSM to request system clock
-                                                                 // false -> use dedicated clock (e.g. xtal)
-        if (mUseCsm) {
-
-            Log.d(TAG, "Using system reference clock");
-
-            try {
-                mCsmClient = new CsmClientNfc(mContext);
-            } catch (CsmException e) {
-                Log.d(TAG, "Unable to create CsmClientNfc", e);
-            }
-        } else {
-            Log.d(TAG, "Using dedicated reference clock");
-        }
 
         mPowerManager = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
 
@@ -537,7 +502,6 @@ public class NfcService implements DeviceHostListener {
         filter.addAction(Intent.ACTION_SCREEN_ON);
         filter.addAction(Intent.ACTION_USER_PRESENT);
         filter.addAction(Intent.ACTION_USER_SWITCHED);
-        filter.addAction(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
         registerForAirplaneMode(filter);
         mContext.registerReceiverAsUser(mReceiver, UserHandle.ALL, filter, null, null);
 
@@ -682,8 +646,6 @@ public class NfcService implements DeviceHostListener {
      * <p>{@link #TASK_BOOT} does first boot work and may enable NFC
      * <p>{@link #TASK_EE_WIPE} wipes the Execution Environment, and in the
      * process may temporarily enable the NFC adapter
-     * <p>{@link #TASK_RESET} reset the NFC adapter by disabling and enabling
-     * it
      */
     class EnableDisableTask extends AsyncTask<Integer, Void, Void> {
         @Override
@@ -713,20 +675,10 @@ public class NfcService implements DeviceHostListener {
                 case TASK_DISABLE:
                     disableInternal();
                     break;
-                case TASK_RESET:
-                    disableInternal();
-                    try {
-                        // For UICC debounce time
-                        Thread.sleep(3000);
-                    } catch (InterruptedException e) {
-                        // Nothing to do!
-                    }
-                    enableInternal();
-                    break;
                 case TASK_BOOT:
                     Log.d(TAG,"checking on firmware download");
                     boolean airplaneOverride = mPrefs.getBoolean(PREF_AIRPLANE_OVERRIDE, false);
-                    if (mPrefs.getBoolean(PREF_NFC_ON, mNfcOnDefault) &&
+                    if (mPrefs.getBoolean(PREF_NFC_ON, NFC_ON_DEFAULT) &&
                             (!mIsAirplaneSensitive || !isAirplaneModeOn() || airplaneOverride)) {
                         Log.d(TAG,"NFC is on. Doing normal stuff");
                         enableInternal();
@@ -740,9 +692,9 @@ public class NfcService implements DeviceHostListener {
                     }
                     if (mPrefs.getBoolean(PREF_FIRST_BOOT, true)) {
                         Log.i(TAG, "First Boot");
-                        executeEeWipe();
                         mPrefsEditor.putBoolean(PREF_FIRST_BOOT, false);
                         mPrefsEditor.apply();
+                        executeEeWipe();
                     }
                     break;
                 case TASK_EE_WIPE:
@@ -763,34 +715,6 @@ public class NfcService implements DeviceHostListener {
             if (mState == NfcAdapter.STATE_ON) {
                 return true;
             }
-
-            if (mUseCsm) {
-                try {
-                    if (null != mCsmClient) {
-                        Log.d(TAG, "Waiting on modem up");
-                        mCsmClient.startSync(MODEM_WAIT_TIMEOUT);
-                    } else {
-                       Log.e(TAG, "CsmClient is not available. Cannot enable NFC");
-                       return false;
-                    }
-                } catch (CsmException e) {
-                    switch (e.getCsmCause()) {
-                        case CsmException.CAUSE_MODEM_LOCK_FAILURE:
-                            Log.e(TAG, "Lock failure: "+ e.getMessage() +". Cannot enable NFC.");
-                            return false;
-                        case CsmException.CAUSE_MODEM_DEAD:
-                            Log.e(TAG, "Modem dead. Cannot enable NFC");
-                            return false;
-                        case CsmException.CAUSE_NO_MODEM:
-                            Log.e(TAG, "There's no modem on the board, skipping.");
-                            break;
-                        default:
-                            Log.e(TAG, "Unknown issue. Cannot enable NFC");
-                            return false;
-                    }
-                }
-            }
-
             Log.i(TAG, "Enabling NFC");
             updateState(NfcAdapter.STATE_TURNING_ON);
 
@@ -819,13 +743,13 @@ public class NfcService implements DeviceHostListener {
             synchronized(NfcService.this) {
                 mObjectMap.clear();
                 mP2pLinkManager.enableDisable(mIsNdefPushEnabled, true);
-
+                updateState(NfcAdapter.STATE_ON);
             }
 
             initSoundPool();
 
             /* Start polling loop */
-            updateState(NfcAdapter.STATE_ON);
+
             applyRouting(true);
             return true;
         }
@@ -897,14 +821,6 @@ public class NfcService implements DeviceHostListener {
             updateState(NfcAdapter.STATE_OFF);
 
             releaseSoundPool();
-
-            if (mUseCsm) {
-                try {
-                    mCsmClient.stop(CsmClient.CSM_CLIENT_STOP_UNBIND);
-                } catch (CsmException e) {
-                    Log.e(TAG, e.getMessage());
-                }
-            }
 
             return result;
         }
@@ -1012,32 +928,6 @@ public class NfcService implements DeviceHostListener {
         }
     }
 
-   private class CsmClientNfc extends CsmClient {
-        public CsmClientNfc(Context context) throws CsmException {
-            super(context, CsmClientNfc.CSM_ID_NFC, CsmClientNfc.CSM_CLIENT_BIND);
-        }
-
-        @Override
-        public void csmClientModemUnavailable() {
-            super.csmClientModemUnavailable();
-
-            Log.d(TAG, "CSM::Modem not available, NFC state: " + mState);
-
-            switch (mState) {
-                case NfcAdapter.STATE_OFF:
-                    this.stop();
-                    break;
-                case NfcAdapter.STATE_ON:
-                case NfcAdapter.STATE_TURNING_ON:
-                    new EnableDisableTask().execute(TASK_DISABLE);
-                    new EnableDisableTask().execute(TASK_ENABLE);
-                    break;
-                case NfcAdapter.STATE_TURNING_OFF:
-                default:
-                    break;
-            }
-        }
-    }
 
     final class NfcAdapterService extends INfcAdapter.Stub {
         @Override
@@ -1886,12 +1776,6 @@ public class NfcService implements DeviceHostListener {
         }
     }
 
-    boolean isNfcEnablingOrShuttingDown() {
-        synchronized (this) {
-            return (mState == NfcAdapter.STATE_TURNING_ON || mState == NfcAdapter.STATE_TURNING_OFF);
-        }
-    }
-
     boolean isNfcEnabled() {
         synchronized (this) {
             return mState == NfcAdapter.STATE_ON;
@@ -2603,30 +2487,8 @@ public class NfcService implements DeviceHostListener {
                 mPrefsEditor.apply();
                 if (isAirplaneModeOn) {
                     new EnableDisableTask().execute(TASK_DISABLE);
-                } else if (!isAirplaneModeOn && mPrefs.getBoolean(PREF_NFC_ON, mNfcOnDefault)) {
+                } else if (!isAirplaneModeOn && mPrefs.getBoolean(PREF_NFC_ON, NFC_ON_DEFAULT)) {
                     new EnableDisableTask().execute(TASK_ENABLE);
-                }
-            } else if (intent.getAction().equals(TelephonyIntents.ACTION_SIM_STATE_CHANGED)) {
-                String stateExtra = intent.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE);
-                Log.d(TAG, "Sim State Changed: " + stateExtra);
-                if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(stateExtra)) {
-                    mIsLocked = false;
-                }
-
-                if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(stateExtra) ||
-                       IccCardConstants.INTENT_VALUE_ICC_LOCKED.equals(stateExtra) ||
-                       IccCardConstants.INTENT_VALUE_ICC_IMSI.equals(stateExtra)) {
-
-                    if ((mState == NfcAdapter.STATE_ON) &&
-                            (mPrefs.getBoolean(PREF_FIRST_BOOT, true) == false) &&
-                            (!isNfcEnablingOrShuttingDown()) && !mIsLocked) {
-                        // Reset NFC service
-                        new EnableDisableTask().execute(TASK_RESET);
-                    }
-
-                    if (IccCardConstants.INTENT_VALUE_ICC_LOCKED.equals(stateExtra)) {
-                        mIsLocked = true;
-                    }
                 }
             } else if (action.equals(Intent.ACTION_USER_SWITCHED)) {
                 mP2pLinkManager.onUserSwitched();
