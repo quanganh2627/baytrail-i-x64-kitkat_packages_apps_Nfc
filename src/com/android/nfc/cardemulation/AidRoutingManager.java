@@ -15,6 +15,7 @@
  */
 package com.android.nfc.cardemulation;
 
+import android.os.SystemProperties;
 import android.util.Log;
 import android.util.SparseArray;
 
@@ -41,7 +42,7 @@ public class AidRoutingManager {
     // For Nexus devices, just a static route to the eSE
     // OEMs/Carriers could manually map off-host AIDs
     // to the correct eSE/UICC based on state they keep.
-    static final int DEFAULT_OFFHOST_ROUTE = 0xF4;
+    final int mDefaultOffhostRoute;
 
     final Object mLock = new Object();
 
@@ -56,7 +57,12 @@ public class AidRoutingManager {
     boolean mDirty;
 
     public AidRoutingManager() {
+       String nfcc = SystemProperties.get("ro.nfc.nfcc", "");
 
+       if("pn547".equals(nfcc))
+           mDefaultOffhostRoute = 0x402;
+       else
+           mDefaultOffhostRoute = 0xF4;
     }
 
     public boolean aidsRoutedToHost() {
@@ -82,7 +88,7 @@ public class AidRoutingManager {
             int currentRoute = getRouteForAidLocked(aid);
             if (DBG) Log.d(TAG, "Set route for AID: " + aid + ", host: " + onHost + " , current: 0x" +
                     Integer.toHexString(currentRoute));
-            route = onHost ? 0 : DEFAULT_OFFHOST_ROUTE;
+            route = onHost ? 0 : mDefaultOffhostRoute;
             if (route == currentRoute) return true;
 
             if (currentRoute != -1) {
