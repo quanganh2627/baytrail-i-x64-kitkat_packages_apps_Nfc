@@ -23,6 +23,7 @@ import android.content.SharedPreferences;
 import android.nfc.ErrorCodes;
 import android.nfc.tech.Ndef;
 import android.nfc.tech.TagTechnology;
+import android.os.SystemProperties;
 import android.util.Log;
 
 import com.android.nfc.DeviceHost;
@@ -88,7 +89,7 @@ public class NativeNfcManager implements DeviceHost {
     public boolean initialize() {
         SharedPreferences prefs = mContext.getSharedPreferences(PREF, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
-        pn547Clf = mContext.getResources().getBoolean(com.android.nfc.R.bool.clf_is_pn547);
+        pn547Clf = "pn547".equals(SystemProperties.get("ro.nfc.nfcc", ""));
         if (prefs.getBoolean(NativeNfcSecureElement.PREF_SE_WIRED, false)) {
             try {
                 Thread.sleep (12000);

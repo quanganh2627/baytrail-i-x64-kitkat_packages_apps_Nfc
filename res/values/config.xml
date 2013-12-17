@@ -20,5 +20,4 @@
     <!-- Boolean to specify whether or not NFC should be default
          enabled -->
     <bool name="nfc_on_default">true</bool>
-    <bool name="clf_is_pn547">false</bool>
 </resources>
