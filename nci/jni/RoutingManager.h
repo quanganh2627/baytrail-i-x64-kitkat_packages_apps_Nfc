@@ -63,6 +63,7 @@ private:
     int mDefaultEe;
 #ifdef NXP_EXT
     int mDefaultEeDeviceOff;
+    int mDefaultEeForTech;
 #endif
     SyncEvent mEeRegisterEvent;
     SyncEvent mRoutingEvent;
