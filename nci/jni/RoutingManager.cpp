@@ -61,6 +61,7 @@ bool RoutingManager::initialize (nfc_jni_native_data* native)
 
 #ifdef NXP_EXT
     mDefaultEeDeviceOff = 0x402;
+    mDefaultEeForTech = 0x402;
 #endif
 
     ALOGD("%s: default route is 0x%02X", fn, mDefaultEe);
@@ -81,7 +82,7 @@ void RoutingManager::setDefaultRouting()
 
 #ifdef NXP_EXT
     // Default routing for NFC-A and NFC-B technology
-    if(mDefaultEeDeviceOff != mDefaultEe)
+    if(mDefaultEeDeviceOff != mDefaultEeForTech)
     {
         nfaStat = NFA_EeSetDefaultTechRouting (mDefaultEeDeviceOff,
                 0, NXP_ALL_TECHNOLOGIES, 0);
@@ -90,21 +91,21 @@ void RoutingManager::setDefaultRouting()
         else
             ALOGE ("Fail to set default tech routing for SE %0X", mDefaultEeDeviceOff);
 
-        nfaStat = NFA_EeSetDefaultTechRouting (mDefaultEe,
+        nfaStat = NFA_EeSetDefaultTechRouting (mDefaultEeForTech,
                 NXP_ALL_TECHNOLOGIES, 0, 0);
         if (nfaStat == NFA_STATUS_OK)
             mRoutingEvent.wait ();
         else
-           ALOGE ("Fail to set default tech routing for SE %0X", mDefaultEe);
+           ALOGE ("Fail to set default tech routing for SE %0X", mDefaultEeForTech);
      }
      else
      {
-        nfaStat = NFA_EeSetDefaultTechRouting (mDefaultEe,
+        nfaStat = NFA_EeSetDefaultTechRouting (mDefaultEeForTech,
                 NXP_ALL_TECHNOLOGIES, NXP_ALL_TECHNOLOGIES, 0);
         if (nfaStat == NFA_STATUS_OK)
             mRoutingEvent.wait ();
         else
-           ALOGE ("Fail to set default tech routing for SE %0X", mDefaultEe);
+           ALOGE ("Fail to set default tech routing for SE %0X", mDefaultEeForTech);
      }
 #else
     // Default routing for NFC-A technology
