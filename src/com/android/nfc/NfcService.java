@@ -259,6 +259,9 @@ public class NfcService implements DeviceHostListener {
     public static final String ACTION_SE_LISTEN_DEACTIVATED =
             "com.android.nfc_extras.action.SE_LISTEN_DEACTIVATED";
 
+    private final long SE_UICC_SUPPORTED = 1;
+    private final long SE_ESE_SUPPORTED = 2;
+
     private boolean mIsLocked = false;
     private boolean mSimAbsent = false;
     private boolean mSimUnknown = false;
@@ -287,6 +290,7 @@ public class NfcService implements DeviceHostListener {
     boolean mReaderModeEnabled;  // current Device Host state of reader mode
     boolean mUseCsm;             // if set, we'll use CSM to request system clock (e.g. from modem)
     boolean mIsWaitingModemUp;
+    long mSeSupport;
     ReaderModeParams mReaderModeParams;
 
     List<PackageInfo> mInstalledPackages; // cached version of installed packages
@@ -573,6 +577,12 @@ public class NfcService implements DeviceHostListener {
         mNfcOnDefault = mContext.getResources().getBoolean(R.bool.nfc_on_default);
         mClfIsPn547 = "pn547".equals(SystemProperties.get("ro.nfc.nfcc", ""));
 
+        mSeSupport = 0;
+        if(SystemProperties.getBoolean("ro.nfc.se.uicc", false) == true)
+            mSeSupport |= SE_UICC_SUPPORTED;
+        if(SystemProperties.getBoolean("ro.nfc.se.ese", false) == true)
+            mSeSupport |= SE_ESE_SUPPORTED;
+
         mPrefs = mContext.getSharedPreferences(PREF, Context.MODE_PRIVATE);
         mPrefsEditor = mPrefs.edit();
 
@@ -643,7 +653,10 @@ public class NfcService implements DeviceHostListener {
             IntentFilter ownerFilter = new IntentFilter(NativeNfcManager.INTERNAL_TARGET_DESELECTED_ACTION);
             ownerFilter.addAction(Intent.ACTION_EXTERNAL_APPLICATIONS_AVAILABLE);
             ownerFilter.addAction(Intent.ACTION_EXTERNAL_APPLICATIONS_UNAVAILABLE);
-            if (!mClfIsPn547) {
+            if ((mSeSupport & SE_ESE_SUPPORTED)!=0) {
+                // Master clear notification added only in case eSE is present.
+                // The notification is processed in the broadcast receiver and
+                // triggers a TASK_EE_WIPE task (calling executeEeWipe func).
                 ownerFilter.addAction(ACTION_MASTER_CLEAR_NOTIFICATION);
             }
 
@@ -842,13 +855,23 @@ public class NfcService implements DeviceHostListener {
                     }
                     if (mPrefs.getBoolean(PREF_FIRST_BOOT, true)) {
                         Log.i(TAG, "First Boot");
-                        executeEeWipe();
+                        if ((mSeSupport & SE_ESE_SUPPORTED)!=0) {
+                            // executeEeWipe called only in case eSE supported
+                            executeEeWipe();
+                        } else {
+                            Log.i(TAG, "executeEeWipe skipped.");
+                        }
                         mPrefsEditor.putBoolean(PREF_FIRST_BOOT, false);
                         mPrefsEditor.apply();
                     }
                     break;
                 case TASK_EE_WIPE:
-                    executeEeWipe();
+                    if ((mSeSupport & SE_ESE_SUPPORTED)!=0) {
+                        // executeEeWipe called only in case eSE supported
+                        executeEeWipe();
+                    } else {
+                        Log.i(TAG, "executeEeWipe skipped.");
+                    }
                     break;
             }
 
@@ -2878,7 +2901,8 @@ public class NfcService implements DeviceHostListener {
                 } else if (!isAirplaneModeOn && mPrefs.getBoolean(PREF_NFC_ON, mNfcOnDefault)) {
                     new EnableDisableTask().execute(TASK_ENABLE);
                 }
-            } else if (intent.getAction().equals(TelephonyIntents.ACTION_SIM_STATE_CHANGED)) {
+            } else if (((mSeSupport & SE_UICC_SUPPORTED)!=0) &&
+                        (intent.getAction().equals(TelephonyIntents.ACTION_SIM_STATE_CHANGED))) {
                 String stateExtra = intent.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE);
                 Log.d(TAG, "Sim State Changed: " + stateExtra);
 
