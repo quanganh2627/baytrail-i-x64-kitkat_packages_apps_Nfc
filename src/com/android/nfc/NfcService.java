@@ -108,6 +108,8 @@ import java.util.NoSuchElementException;
 import java.util.concurrent.ExecutionException;
 
 import com.nxp.nfc.PN547NfcAdapterExt;
+import com.intel.nfc.NfcAdapterVendorExt;
+import com.intel.nfc.INfcAdapterVendorExt;
 
 import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.telephony.IccCardConstants;
@@ -301,6 +303,7 @@ public class NfcService implements DeviceHostListener {
     TagService mNfcTagService;
     NfcAdapterService mNfcAdapter;
     NfcAdapterExtrasService mExtrasService;
+    PN547NfcAdapterExtService mPN547NfcAdapterExt;
     CardEmulationService mCardEmulationService;
     boolean mIsAirplaneSensitive;
     boolean mIsAirplaneToggleable;
@@ -583,6 +586,12 @@ public class NfcService implements DeviceHostListener {
         mScreenState = checkScreenState();
 
         ServiceManager.addService(SERVICE_NAME, mNfcAdapter);
+
+        // Register PN547 specific extention
+        if(mClfIsPn547) {
+            mPN547NfcAdapterExt = new PN547NfcAdapterExtService();
+            ServiceManager.addService(NfcAdapterVendorExt.SERVICE_NAME, mPN547NfcAdapterExt);
+        }
 
         // Intents for all users
         IntentFilter filter = new IntentFilter(NativeNfcManager.INTERNAL_TARGET_DESELECTED_ACTION);
@@ -1095,6 +1104,18 @@ public class NfcService implements DeviceHostListener {
                 default:
                     break;
             }
+        }
+    }
+
+    final class PN547NfcAdapterExtService extends INfcAdapterVendorExt.Stub {
+        @Override
+        public void activeSwp() throws RemoteException {
+           if(mClfIsPn547) {
+              mDeviceHost.doSelectSecureElement();
+           }
+           else {
+              Log.e(TAG, "activeSwp() API is only available on PN547");
+           }
         }
     }
 
