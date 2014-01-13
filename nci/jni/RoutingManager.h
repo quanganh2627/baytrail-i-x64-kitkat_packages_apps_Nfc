@@ -60,7 +60,7 @@ private:
 #else
     void setDefaultRouting();
 #endif
-    void handleData (const UINT8* data, UINT8 dataLen);
+    void handleData (const UINT8* data, UINT16 dataLen);
     void notifyActivated ();
     void notifyDeactivated ();
     static void nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* eventData);
