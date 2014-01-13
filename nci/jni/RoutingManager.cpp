@@ -432,7 +432,7 @@ void RoutingManager::notifyDeactivated ()
     }
 }
 
-void RoutingManager::handleData (const UINT8* data, UINT8 dataLen)
+void RoutingManager::handleData (const UINT8* data, UINT16 dataLen)
 {
     if (dataLen <= 0)
     {
