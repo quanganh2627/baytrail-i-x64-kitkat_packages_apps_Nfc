@@ -223,7 +223,8 @@ public class NfcService implements DeviceHostListener {
             "com.android.nfc_extras.action.SE_LISTEN_DEACTIVATED";
 
     private boolean mIsLocked = false;
-
+    private boolean mSimAbsent = false;
+    private boolean mSimUnknown = false;
     // NFC Execution Environment
     // fields below are protected by this
     private NativeNfcSecureElement mSecureElement;
@@ -248,6 +249,7 @@ public class NfcService implements DeviceHostListener {
     boolean mHostRouteEnabled;   // current Device Host state of host-based routing
     boolean mReaderModeEnabled;  // current Device Host state of reader mode
     boolean mUseCsm;             // if set, we'll use CSM to request system clock (e.g. from modem)
+    boolean mIsWaitingModemUp;
     ReaderModeParams mReaderModeParams;
 
     List<PackageInfo> mInstalledPackages; // cached version of installed packages
@@ -554,7 +556,9 @@ public class NfcService implements DeviceHostListener {
             IntentFilter ownerFilter = new IntentFilter(NativeNfcManager.INTERNAL_TARGET_DESELECTED_ACTION);
             ownerFilter.addAction(Intent.ACTION_EXTERNAL_APPLICATIONS_AVAILABLE);
             ownerFilter.addAction(Intent.ACTION_EXTERNAL_APPLICATIONS_UNAVAILABLE);
-            ownerFilter.addAction(ACTION_MASTER_CLEAR_NOTIFICATION);
+            if (!mClfIsPn547) {
+                ownerFilter.addAction(ACTION_MASTER_CLEAR_NOTIFICATION);
+            }
 
             mContext.registerReceiver(mOwnerReceiver, ownerFilter);
 
@@ -769,6 +773,7 @@ public class NfcService implements DeviceHostListener {
             if (mUseCsm) {
                 try {
                     if (null != mCsmClient) {
+                        mIsWaitingModemUp = true;
                         Log.d(TAG, "Waiting on modem up");
                         mCsmClient.startSync(MODEM_WAIT_TIMEOUT);
                     } else {
@@ -794,6 +799,7 @@ public class NfcService implements DeviceHostListener {
             }
 
             Log.i(TAG, "Enabling NFC");
+            mIsWaitingModemUp = false;
             updateState(NfcAdapter.STATE_TURNING_ON);
 
             WatchDogThread watchDog = new WatchDogThread("enableInternal", INIT_WATCHDOG_MS);
@@ -902,7 +908,7 @@ public class NfcService implements DeviceHostListener {
 
             if (mUseCsm) {
                 try {
-                    mCsmClient.stop(CsmClient.CSM_CLIENT_STOP_UNBIND);
+                    mCsmClient.stop(CsmClient.CSM_CLIENT_STOP_NO_UNBIND);
                 } catch (CsmException e) {
                     Log.e(TAG, e.getMessage());
                 }
@@ -1031,8 +1037,10 @@ public class NfcService implements DeviceHostListener {
                     break;
                 case NfcAdapter.STATE_ON:
                 case NfcAdapter.STATE_TURNING_ON:
-                    new EnableDisableTask().execute(TASK_DISABLE);
-                    new EnableDisableTask().execute(TASK_ENABLE);
+                    if (!mIsWaitingModemUp) {
+                        new EnableDisableTask().execute(TASK_DISABLE);
+                        new EnableDisableTask().execute(TASK_ENABLE);
+                    }
                     break;
                 case NfcAdapter.STATE_TURNING_OFF:
                 default:
@@ -2621,19 +2629,26 @@ public class NfcService implements DeviceHostListener {
             } else if (intent.getAction().equals(TelephonyIntents.ACTION_SIM_STATE_CHANGED)) {
                 String stateExtra = intent.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE);
                 Log.d(TAG, "Sim State Changed: " + stateExtra);
+
                 if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(stateExtra)) {
                     mIsLocked = false;
+                    mSimAbsent = true;
                 }
 
-                if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(stateExtra) ||
+                if (IccCardConstants.INTENT_VALUE_ICC_UNKNOWN.equals(stateExtra)) {
+                    mSimUnknown = true;
+                }
+
+                else if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(stateExtra) ||
                        IccCardConstants.INTENT_VALUE_ICC_LOCKED.equals(stateExtra) ||
                        IccCardConstants.INTENT_VALUE_ICC_IMSI.equals(stateExtra)) {
 
                     if ((mState == NfcAdapter.STATE_ON) &&
                             (mPrefs.getBoolean(PREF_FIRST_BOOT, true) == false) &&
-                            (!isNfcEnablingOrShuttingDown()) && !mIsLocked) {
+                            (!isNfcEnablingOrShuttingDown()) && !mIsLocked && (mSimAbsent || mSimUnknown)) {
                         // Reset NFC service
                         new EnableDisableTask().execute(TASK_RESET);
+                        mSimUnknown = false;
                     }
 
                     if (IccCardConstants.INTENT_VALUE_ICC_LOCKED.equals(stateExtra)) {
