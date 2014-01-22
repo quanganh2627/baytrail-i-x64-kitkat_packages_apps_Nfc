@@ -60,7 +60,7 @@ public class AidRoutingManager {
        String nfcc = SystemProperties.get("ro.nfc.nfcc", "");
 
        if("pn547".equals(nfcc))
-           mDefaultOffhostRoute = 0x402;
+           mDefaultOffhostRoute = 0x02;
        else
            mDefaultOffhostRoute = 0xF4;
     }

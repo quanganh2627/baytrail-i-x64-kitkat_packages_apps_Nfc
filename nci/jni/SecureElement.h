@@ -13,7 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+/******************************************************************************
+ *
+ *  The original Work has been changed by NXP Semiconductors.
+ *
+ *  Copyright (C) 2013 NXP Semiconductors
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ ******************************************************************************/
 /*
  *  Communicate with secure elements that are attached to the NFC
  *  controller.
@@ -23,6 +41,9 @@
 #include "DataQueue.h"
 #include "NfcJniUtil.h"
 #include "RouteDataSet.h"
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+#include "IntervalTimer.h"
+#endif
 extern "C"
 {
     #include "nfa_ee_api.h"
@@ -31,12 +52,37 @@ extern "C"
     #include "nfa_ce_api.h"
 }
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+typedef struct {
+    tNFA_HANDLE src;
+    tNFA_TECHNOLOGY_MASK tech_mask;
+}rd_swp_req_t;
+
+namespace android {
+extern SyncEvent sNfaEnableDisablePollingEvent;
+extern void startStopPolling (bool isStartPolling);
+
+}  // namespace android
+#endif
 
 class SecureElement
 {
 public:
     tNFA_HANDLE  mActiveEeHandle;
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+#ifdef CHECK_FOR_NFCEE_CONFIGURATION
+#define MAX_NFCEE 5
 
+    struct mNfceeData{
+    tNFA_HANDLE mNfceeHandle[MAX_NFCEE];
+    tNFA_EE_STATUS mNfceeStatus[MAX_NFCEE];
+    UINT8 mNfceePresent;
+    };
+    mNfceeData  mNfceeData_t;
+#endif
+#endif
+
+    static const int MAX_NUM_EE = 5;    //max number of EE's
 
     /*******************************************************************************
     **
@@ -87,6 +133,19 @@ public:
     *******************************************************************************/
     jintArray getSecureElementIdList (JNIEnv* e);
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    /*******************************************************************************
+    **
+    ** Function:        getListOfEeHandles
+    **
+    ** Description:     Get the list of handles of all execution environments.
+    **                  e: Java Virtual Machine.
+    **
+    ** Returns:         List of handles of all execution environments.
+    **
+    *******************************************************************************/
+    jintArray getListOfEeHandles (JNIEnv* e);
+#endif
 
     /*******************************************************************************
     **
@@ -184,6 +243,29 @@ public:
     *******************************************************************************/
     void notifyRfFieldEvent (bool isActive);
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    /*******************************************************************************
+    **
+    ** Function:        notifyEEReaderEvent
+    **
+    ** Description:     Notify the NFC service about Reader over SWP events from the stack.
+    **
+    ** Returns:         None
+    **
+    *******************************************************************************/
+    void notifyEEReaderEvent (int evt, int data);
+
+    /*******************************************************************************
+    **
+    ** Function:        handleEEReaderEvent
+    **
+    ** Description:     Handle the Reader over SWP events from the stack.
+    **
+    ** Returns:         None
+    **
+    *******************************************************************************/
+    void handleEEReaderEvent (int evt, int data, tNFA_HANDLE src);
+#endif
 
     /*******************************************************************************
     **
@@ -248,7 +330,7 @@ public:
     ** Returns:         None
     **
     *******************************************************************************/
-#ifdef NXP_EXT
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     void notifyTransactionListenersOfAid (const UINT8* aid, UINT8 aidLen, const UINT8* data, UINT8 dataLen, UINT32 evtSrc);
 #else
     void notifyTransactionListenersOfAid (const UINT8* aid, UINT8 aidLen);
@@ -264,8 +346,20 @@ public:
     ** Returns:         None
     **
     *******************************************************************************/
-#ifdef NXP_EXT
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     void notifyConnectivityListeners (UINT8 evtSrc);
+
+    /*******************************************************************************
+    **
+    ** Function:        notifyEmvcoMultiCardDetectedListeners
+    **
+    ** Description:     Notify the NFC service about a multiple card presented to
+    **                  Emvco reader.
+    **
+    ** Returns:         None
+    **
+    *******************************************************************************/
+    void notifyEmvcoMultiCardDetectedListeners ();
 #endif
 
     /*******************************************************************************
@@ -321,6 +415,8 @@ public:
     **
     *******************************************************************************/
     void setActiveSeOverride (UINT8 activeSeOverride);
+
+    bool SecEle_Modeset(UINT8 type);
 
 
     /*******************************************************************************
@@ -384,15 +480,56 @@ public:
     *******************************************************************************/
     bool isRfFieldOn();
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+
+    bool sendEvent(UINT8 event);
+
+    /*******************************************************************************
+    **
+    ** Function:        getAtr
+    **
+    ** Description:     Can be used to get the ATR response from connected eSE
+    **
+    ** Returns:         True if ATR response is returned successfully
+    **
+    *******************************************************************************/
+    bool getAtr(jint seID, UINT8* recvBuffer, INT32 *recvBufferSize);
+
+    static const UINT8 UICC_ID = 0x02;
+    static const UINT8 ESE_ID = 0x01;
+    void getEeHandleList(tNFA_HANDLE *list, UINT8* count);
+
+    tNFA_HANDLE getEseHandleFromGenericId(jint eseId);
+
+    jint getGenericEseId(tNFA_HANDLE handle);
+
+    SyncEvent       mRoutingEvent;
+    SyncEvent       mAidAddRemoveEvent;
+    SyncEvent       mUiccListenEvent;
+
+    static const UINT8 EVT_END_OF_APDU_TRANSFER = 0x21;    //NXP Propritory
+    static const UINT8 EVT_RESET_ESE = 0x11;
+#endif
+
 private:
     static const unsigned int MAX_RESPONSE_SIZE = 1024;
     enum RouteSelection {NoRoute, DefaultRoute, SecElemRoute};
+#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
     static const int MAX_NUM_EE = 5;    //max number of EE's
+#endif
     static const UINT8 STATIC_PIPE_0x70 = 0x70; //Broadcom's proprietary static pipe
     static const UINT8 STATIC_PIPE_0x71 = 0x71; //Broadcom's proprietary static pipe
     static const UINT8 EVT_SEND_DATA = 0x10;    //see specification ETSI TS 102 622 v9.0.0 (Host Controller Interface); section 9.3.3.3
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x4C0;//0x401; //handle to secure element in slot 0
+#else
     static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x4F3; //handle to secure element in slot 0
-    static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x4F4; //handle to secure element in slot 1
+#endif
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x402; //handle to secure element in slot 1
+#else
+    static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x0F4;//0x4C0; //handle to secure element in slot 1
+#endif
     static SecureElement sSecElem;
     static const char* APP_NAME;
 
@@ -410,6 +547,9 @@ private:
     bool    mIsPiping;              //is a pipe connected to the controller?
     RouteSelection mCurrentRouteSelection;
     int     mActualResponseSize;         //number of bytes in the response received from secure element
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    int     mAtrInfolen;
+#endif
     bool    mUseOberthurWarmReset;  //whether to use warm-reset command
     bool    mActivatedInListenMode; // whether we're activated in listen mode
     UINT8   mOberthurWarmResetCommand; //warm-reset command byte
@@ -424,14 +564,28 @@ private:
     SyncEvent       mPipeOpenedEvent;
     SyncEvent       mAllocateGateEvent;
     SyncEvent       mDeallocateGateEvent;
+#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
     SyncEvent       mRoutingEvent;
+#endif
     SyncEvent       mUiccInfoEvent;
+#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
     SyncEvent       mUiccListenEvent;
     SyncEvent       mAidAddRemoveEvent;
+#endif
     SyncEvent       mTransceiveEvent;
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    SyncEvent       mGetRegisterEvent;
+#endif
     SyncEvent       mVerInfoEvent;
     SyncEvent       mRegistryEvent;
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    SyncEvent       mDiscMapEvent;
+#endif
     UINT8           mVerInfo [3];
+    UINT8           mAtrInfo[40];
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    bool            mGetAtrRspwait;
+#endif
     UINT8           mResponseData [MAX_RESPONSE_SIZE];
     RouteDataSet    mRouteDataSet; //routing data
     std::vector<std::string> mUsedAids; //AID's that are used in current routes
@@ -439,6 +593,13 @@ private:
     Mutex           mMutex; // protects fields below
     bool            mRfFieldIsOn; // last known RF field state
     struct timespec mLastRfFieldToggle; // last time RF field went off
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    IntervalTimer sStartSwpReaderTimer; // timer used for presence cmd notification timeout.
+    IntervalTimer sStopSwpReaderTimer; // timer used for presence cmd notification timeout.
+    IntervalTimer   mTransceiveTimer;
+    bool            mTransceiveWaitOk;
+#endif
+
     /*******************************************************************************
     **
     ** Function:        SecureElement
@@ -607,5 +768,11 @@ private:
     **
     *******************************************************************************/
     bool encodeAid (UINT8* tlv, UINT16 tlvMaxLen, UINT16& tlvActualLen, const UINT8* aid, UINT8 aidLen);
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    static void discovery_map_cb (tNFC_DISCOVER_EVT event, tNFC_DISCOVER *p_data);
+
+    static void transceiveTimerProc (union sigval);
+#endif
 };
 
