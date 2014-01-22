@@ -40,10 +40,8 @@ namespace android
 {
     extern void nativeNfcTag_registerNdefTypeHandler ();
     extern void nativeNfcTag_deregisterNdefTypeHandler ();
-#ifdef NXP_EXT
     extern void startRfDiscovery(bool isStart);
     extern bool isDiscoveryStarted();
-#endif
 }
 
 
@@ -476,7 +474,7 @@ bool PeerToPeer::deregisterServer (tJNI_HANDLE jniHandle)
     ALOGD ("%s: enter; JNI handle: %u", fn, jniHandle);
     tNFA_STATUS     nfaStat = NFA_STATUS_FAILED;
     sp<P2pServer>   pSrv = NULL;
-#ifdef NXP_EXT
+#if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     bool isDiscStopped = false;
 #endif
 
@@ -489,7 +487,7 @@ bool PeerToPeer::deregisterServer (tJNI_HANDLE jniHandle)
     }
     mMutex.unlock();
 
-#ifdef NXP_EXT
+#if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     //Check if the discovery is started.
     if(isDiscoveryStarted())
     {
@@ -518,7 +516,7 @@ bool PeerToPeer::deregisterServer (tJNI_HANDLE jniHandle)
 
     removeServer (jniHandle);
 
-#ifdef NXP_EXT
+#if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     if(isDiscStopped == true)
     {
         startRfDiscovery(true);

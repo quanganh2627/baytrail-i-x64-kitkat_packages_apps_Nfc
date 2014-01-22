@@ -590,10 +590,15 @@ public class NfcService implements DeviceHostListener {
         ServiceManager.addService(SERVICE_NAME, mNfcAdapter);
 
         // Register PN547 specific extention
-        if(mClfIsPn547) {
+        if (mClfIsPn547) {
             mPN547NfcAdapterExt = new PN547NfcAdapterExtService();
             ServiceManager.addService(NfcAdapterVendorExt.SERVICE_NAME, mPN547NfcAdapterExt);
         }
+
+        // Register Shutdown receiver
+        IntentFilter shutDownFilter = new IntentFilter();
+        shutDownFilter.addAction(Intent.ACTION_SHUTDOWN);
+        mContext.registerReceiver(mShutdownReceiver, shutDownFilter);
 
         // Intents for all users
         IntentFilter filter = new IntentFilter(NativeNfcManager.INTERNAL_TARGET_DESELECTED_ACTION);
@@ -1112,7 +1117,7 @@ public class NfcService implements DeviceHostListener {
     final class PN547NfcAdapterExtService extends INfcAdapterVendorExt.Stub {
         @Override
         public void activeSwp() throws RemoteException {
-           if(mClfIsPn547) {
+           if (mClfIsPn547) {
               mDeviceHost.doSelectSecureElement();
            }
            else {
@@ -2074,7 +2079,7 @@ public class NfcService implements DeviceHostListener {
                         if (force || mNfceeRouteEnabled) {
                             Log.d(TAG, "NFC-EE OFF");
                             mNfceeRouteEnabled = false;
-                            mDeviceHost.doDeselectSecureElement();
+                            if (!mClfIsPn547) mDeviceHost.doDeselectSecureElement();
                         }
                     }
                     return;
@@ -2099,13 +2104,13 @@ public class NfcService implements DeviceHostListener {
                     if (force || !mNfceeRouteEnabled) {
                         Log.d(TAG, "NFC-EE ON");
                         mNfceeRouteEnabled = true;
-                        mDeviceHost.doSelectSecureElement();
+                        if (!mClfIsPn547) mDeviceHost.doSelectSecureElement();
                     }
                 } else {
                     if (force ||  mNfceeRouteEnabled) {
                         Log.d(TAG, "NFC-EE OFF");
                         mNfceeRouteEnabled = false;
-                        mDeviceHost.doDeselectSecureElement();
+                        if (!mClfIsPn547) mDeviceHost.doDeselectSecureElement();
                     }
                 }
 
@@ -2148,7 +2153,7 @@ public class NfcService implements DeviceHostListener {
                             // to the field.
                             Log.d(TAG, "NFC-EE ON");
                             mNfceeRouteEnabled = true;
-                            mDeviceHost.doSelectSecureElement();
+                            //mDeviceHost.doSelectSecureElement();
                         }
                     }
                 }
@@ -2361,7 +2366,7 @@ public class NfcService implements DeviceHostListener {
 
                     byte[] aid = null;
 
-                    if(mClfIsPn547) {
+                    if (mClfIsPn547) {
 
                         Pair<byte[], Pair> transactionInfo = (Pair<byte[], Pair>) msg.obj;
                         Pair<byte[], Integer> dataSrcInfo = (Pair<byte[], Integer>) transactionInfo.second;
@@ -2370,10 +2375,10 @@ public class NfcService implements DeviceHostListener {
 
                         String evtSrc = "";
                         String reader = "";
-                        if(dataSrcInfo.second == PN547NfcAdapterExt.UICC_ID_TYPE) {
+                        if (dataSrcInfo.second == PN547NfcAdapterExt.UICC_ID_TYPE) {
                             evtSrc = PN547NfcAdapterExt.UICC_ID;
                             reader = SmartcardProxy.READER_UICC;
-                        } else if(dataSrcInfo.second == PN547NfcAdapterExt.SMART_MX_ID_TYPE) {
+                        } else if (dataSrcInfo.second == PN547NfcAdapterExt.SMART_MX_ID_TYPE) {
                             evtSrc = PN547NfcAdapterExt.SMART_MX_ID;
                             reader = SmartcardProxy.READER_ESE;
                         }
@@ -2389,7 +2394,7 @@ public class NfcService implements DeviceHostListener {
                             Log.d(TAG, "Start Activity Card Emulation event");
                         }
 
-                        if(mSmartcardProxy.isSmartcardServiceAvailable()) {
+                        if (mSmartcardProxy.isSmartcardServiceAvailable()) {
                             mSmartcardProxy.sendNfcEventBroadcast(TransactionIntent, transactionInfo.first, reader);
                         } else {
                             mContext.sendBroadcast(TransactionIntent, NFC_PERM);
@@ -2414,9 +2419,9 @@ public class NfcService implements DeviceHostListener {
                     Integer evtSrcInfo = (Integer) msg.obj;
                     Log.d(TAG, "Event source " + evtSrcInfo);
                     String evtSrc = "";
-                    if(evtSrcInfo == PN547NfcAdapterExt.UICC_ID_TYPE) {
+                    if (evtSrcInfo == PN547NfcAdapterExt.UICC_ID_TYPE) {
                         evtSrc = PN547NfcAdapterExt.UICC_ID;
-                    } else if(evtSrcInfo == PN547NfcAdapterExt.SMART_MX_ID_TYPE) {
+                    } else if (evtSrcInfo == PN547NfcAdapterExt.SMART_MX_ID_TYPE) {
                         evtSrc = PN547NfcAdapterExt.SMART_MX_ID;
                     }
 
@@ -2678,6 +2683,12 @@ public class NfcService implements DeviceHostListener {
             }
         }
     }
+
+    private final BroadcastReceiver mShutdownReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+        }
+    };
 
     private final BroadcastReceiver mOwnerReceiver = new BroadcastReceiver() {
         @Override

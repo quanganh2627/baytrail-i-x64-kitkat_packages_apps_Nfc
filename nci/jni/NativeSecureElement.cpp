@@ -42,7 +42,7 @@
 namespace android
 {
 
-#ifdef NXP_EXT
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
 extern void startRfDiscovery (bool isStart);
 extern bool isDiscoveryStarted();
 extern int gGeneralTransceiveTimeout;
@@ -92,42 +92,23 @@ static jint nativeNfcSecureElement_doOpenSecureElementConnection (JNIEnv*, jobje
         secElemHandle = EE_ERROR_LISTEN_MODE;
         goto TheEnd;
     }
-
+#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
     if (se.isRfFieldOn()) {
         ALOGD("Denying SE open due to SE in active RF field");
         secElemHandle = EE_ERROR_EXT_FIELD;
         goto TheEnd;
     }
+#endif
+
     //tell the controller to power up to get ready for sec elem operations
     PowerSwitch::getInstance ().setLevel (PowerSwitch::FULL_POWER);
     PowerSwitch::getInstance ().setModeOn (PowerSwitch::SE_CONNECTED);
 
-#ifdef NXP_EXT
-    {
-
-        sRfEnabled = isDiscoveryStarted();
-        if (sRfEnabled) {
-            // Stop RF Discovery if we were polling
-            startRfDiscovery (false);
-        }
-
-        UINT8 param[] = {0x00}; //Disable standby
-        SyncEventGuard guard (sNfaVSCResponseEvent);
-        tNFA_STATUS stat = NFA_SendVsCommand (0x00,0x01,param,nfaVSCCallback);
-        if(NFA_STATUS_OK == stat)
-        {
-            sNfaVSCResponseEvent.wait(); //wait for NFA VS command to finish
-
-        }
-
-        startRfDiscovery (true);
-    }
-#endif
     //if controller is not routing AND there is no pipe connected,
     //then turn on the sec elem
     if (! se.isBusy())
     {
-#ifdef NXP_EXT
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
         stat = se.activate(0x01);
 #else
         stat = se.activate(0);
@@ -177,26 +158,14 @@ static jboolean nativeNfcSecureElement_doDisconnectSecureElementConnection (JNIE
 {
     ALOGD("%s: enter; handle=0x%04x", __FUNCTION__, handle);
     bool stat = false;
-#ifdef NXP_EXT
-    {
-        sRfEnabled = isDiscoveryStarted();
-        if (sRfEnabled) {
-            // Stop RF Discovery if we were polling
-            startRfDiscovery (false);
-        }
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    //Send the EVT_END_OF_APDU_TRANSFER event at the end of wired mode session.
+    stat = SecureElement::getInstance().sendEvent(SecureElement::EVT_END_OF_APDU_TRANSFER);
 
-        UINT8 param[] = {0x01};//Enable standby
-        SyncEventGuard guard (sNfaVSCResponseEvent);
-        tNFA_STATUS stat = NFA_SendVsCommand (0x00,0x01,param,nfaVSCCallback);
-        if(NFA_STATUS_OK == stat)
-        {
-            sNfaVSCResponseEvent.wait(); //wait for NFA VS command to finish
-
-        }
-
-        startRfDiscovery (true);
-    }
+    if (stat == false)
+        goto TheEnd;
 #endif
+
     stat = SecureElement::getInstance().disconnectEE (handle);
 
     //if controller is not routing AND there is no pipe connected,
@@ -208,10 +177,68 @@ static jboolean nativeNfcSecureElement_doDisconnectSecureElementConnection (JNIE
     if (! PowerSwitch::getInstance ().setModeOff (PowerSwitch::SE_CONNECTED))
         PowerSwitch::getInstance ().setLevel (PowerSwitch::LOW_POWER);
 
+TheEnd:
     ALOGD("%s: exit", __FUNCTION__);
     return stat ? JNI_TRUE : JNI_FALSE;
 }
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+/*******************************************************************************
+**
+** Function:        nativeNfcSecureElement_doResetSecureElement
+**
+** Description:     Reset the secure element.
+**                  e: JVM environment.
+**                  o: Java object.
+**                  handle: Handle of secure element.
+**
+** Returns:         True if ok.
+**
+*******************************************************************************/
+static jboolean nativeNfcSecureElement_doResetSecureElement (JNIEnv*, jobject, jint handle)
+{
+    bool stat = false;
+    ALOGD("%s: enter; handle=0x%04x", __FUNCTION__, handle);
+
+    stat = SecureElement::getInstance().sendEvent(SecureElement::EVT_RESET_ESE);
+
+    ALOGD("%s: exit", __FUNCTION__);
+    return stat ? JNI_TRUE : JNI_FALSE;
+}
+
+/*******************************************************************************
+**
+** Function:        nativeNfcSecureElement_doGetAtr
+**
+** Description:     GetAtr from the connected eSE.
+**                  e: JVM environment.
+**                  o: Java object.
+**                  handle: Handle of secure element.
+**
+** Returns:         Buffer of received data.
+**
+*******************************************************************************/
+static jbyteArray nativeNfcSecureElement_doGetAtr (JNIEnv* e, jobject, jint handle)
+{
+    bool stat = false;
+    const INT32 recvBufferMaxSize = 1024;
+    UINT8 recvBuffer [recvBufferMaxSize];
+    INT32 recvBufferActualSize = 0;
+    ALOGD("%s: enter; handle=0x%04x", __FUNCTION__, handle);
+
+    stat = SecureElement::getInstance().getAtr(handle, recvBuffer, &recvBufferActualSize);
+
+    //copy results back to java
+    jbyteArray result = e->NewByteArray(recvBufferActualSize);
+    if (result != NULL) {
+        e->SetByteArrayRegion(result, 0, recvBufferActualSize, (jbyte *) recvBuffer);
+    }
+
+    ALOGD("%s: exit: recv len=%ld", __FUNCTION__, recvBufferActualSize);
+
+    return result;
+}
+#endif
 
 /*******************************************************************************
 **
@@ -231,7 +258,11 @@ static jbyteArray nativeNfcSecureElement_doTransceive (JNIEnv* e, jobject, jint 
     const INT32 recvBufferMaxSize = 1024;
     UINT8 recvBuffer [recvBufferMaxSize];
     INT32 recvBufferActualSize = 0;
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    int timeout = gGeneralTransceiveTimeout;
+#else
     int timeout = NfcTag::getInstance ().getTransceiveTimeout (TARGET_TYPE_ISO14443_4); //NFC service expects JNI to use ISO-DEP's timeout
+#endif
     ScopedByteArrayRW bytes(e, data);
 
     ALOGD("%s: enter; handle=0x%X; buf len=%zu", __FUNCTION__, handle, bytes.size());
