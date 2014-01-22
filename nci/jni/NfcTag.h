@@ -219,7 +219,7 @@ public:
     *******************************************************************************/
     bool isMifareUltralight ();
 
-#ifdef NXP_EXT
+#if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     /*******************************************************************************
     **
     ** Function:        isMifareDESFire
@@ -309,7 +309,7 @@ public:
     *******************************************************************************/
     void setTransceiveTimeout (int techId, int timeout);
 
-#ifdef NXP_EXT
+#if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     /*******************************************************************************
     **
     ** Function:        isTypeBTag
