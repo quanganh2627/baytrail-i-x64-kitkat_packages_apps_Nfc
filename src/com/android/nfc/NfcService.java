@@ -13,7 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+/******************************************************************************
+ *
+ *  The original Work has been changed by NXP Semiconductors.
+ *
+ *  Copyright (C) 2013 NXP Semiconductors
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ ******************************************************************************/
 package com.android.nfc;
 
 import com.android.nfc.DeviceHost.DeviceHostListener;
@@ -77,6 +95,8 @@ import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.Log;
+import android.util.Pair;
+
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -86,6 +106,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ExecutionException;
+
+import com.nxp.nfc.PN547NfcAdapterExt;
+import com.intel.nfc.NfcAdapterVendorExt;
+import com.intel.nfc.INfcAdapterVendorExt;
 
 import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.telephony.IccCardConstants;
@@ -137,6 +161,10 @@ public class NfcService implements DeviceHostListener {
     static final int MSG_ROUTE_AID = 16;
     static final int MSG_UNROUTE_AID = 17;
     static final int MSG_COMMIT_ROUTING = 18;
+
+    /* PN547 specific MSG */
+    static final int MSG_CONNECTIVITY_EVENT = 23;
+
 
     static final int TASK_ENABLE = 1;
     static final int TASK_DISABLE = 2;
@@ -275,12 +303,14 @@ public class NfcService implements DeviceHostListener {
     TagService mNfcTagService;
     NfcAdapterService mNfcAdapter;
     NfcAdapterExtrasService mExtrasService;
+    PN547NfcAdapterExtService mPN547NfcAdapterExt;
     CardEmulationService mCardEmulationService;
     boolean mIsAirplaneSensitive;
     boolean mIsAirplaneToggleable;
     boolean mIsDebugBuild;
     boolean mIsHceCapable;
     NfceeAccessControl mNfceeAccessControl;
+    SmartcardProxy mSmartcardProxy;
 
     private NfcDispatcher mNfcDispatcher;
     private PowerManager mPowerManager;
@@ -333,6 +363,15 @@ public class NfcService implements DeviceHostListener {
         sendMessage(NfcService.MSG_NDEF_TAG, tag);
     }
 
+     /**
+     * Notifies connectivity (PN547 specific)
+     */
+    @Override
+    public void onConnectivityEvent(int evtSrc) {
+        Log.d(TAG, "onConnectivityEvent : Source" + evtSrc);
+        sendMessage(NfcService.MSG_CONNECTIVITY_EVENT, evtSrc);
+    }
+
     /**
      * Notifies transaction
      */
@@ -350,6 +389,20 @@ public class NfcService implements DeviceHostListener {
     public void onCardEmulationAidSelected(byte[] aid) {
         if (!mIsHceCapable || SE_BROADCASTS_WITH_HCE) {
             sendMessage(NfcService.MSG_CARD_EMULATION, aid);
+        }
+    }
+
+   /**
+     * Notifies transaction (PN547 specific)
+     */
+    @Override
+    public void onCardEmulationAidSelected(byte[] aid, byte[] data, int evtSrc) {
+        if (!mIsHceCapable || SE_BROADCASTS_WITH_HCE) {
+            Pair<byte[], Integer> dataSrc = new Pair<byte[], Integer>(data, evtSrc);
+            Pair<byte[], Pair> transactionInfo = new Pair<byte[], Pair>(aid, dataSrc);
+            Log.d(TAG, "onCardEmulationAidSelected : Source" + evtSrc);
+
+            sendMessage(NfcService.MSG_CARD_EMULATION, transactionInfo);
         }
     }
 
@@ -495,6 +548,7 @@ public class NfcService implements DeviceHostListener {
         mEeRoutingState = ROUTE_OFF;
 
         mNfceeAccessControl = new NfceeAccessControl(mContext);
+        mSmartcardProxy = new SmartcardProxy(mContext);
 
         mNfcOnDefault = mContext.getResources().getBoolean(R.bool.nfc_on_default);
         mClfIsPn547 = "pn547".equals(SystemProperties.get("ro.nfc.nfcc", ""));
@@ -534,6 +588,12 @@ public class NfcService implements DeviceHostListener {
         mScreenState = checkScreenState();
 
         ServiceManager.addService(SERVICE_NAME, mNfcAdapter);
+
+        // Register PN547 specific extention
+        if(mClfIsPn547) {
+            mPN547NfcAdapterExt = new PN547NfcAdapterExtService();
+            ServiceManager.addService(NfcAdapterVendorExt.SERVICE_NAME, mPN547NfcAdapterExt);
+        }
 
         // Intents for all users
         IntentFilter filter = new IntentFilter(NativeNfcManager.INTERNAL_TARGET_DESELECTED_ACTION);
@@ -1046,6 +1106,18 @@ public class NfcService implements DeviceHostListener {
                 default:
                     break;
             }
+        }
+    }
+
+    final class PN547NfcAdapterExtService extends INfcAdapterVendorExt.Stub {
+        @Override
+        public void activeSwp() throws RemoteException {
+           if(mClfIsPn547) {
+              mDeviceHost.doSelectSecureElement();
+           }
+           else {
+              Log.e(TAG, "activeSwp() API is only available on PN547");
+           }
         }
     }
 
@@ -2286,13 +2358,75 @@ public class NfcService implements DeviceHostListener {
                     if (mHostEmulationManager != null) {
                         mHostEmulationManager.notifyOffHostAidSelected();
                     }
-                    byte[] aid = (byte[]) msg.obj;
+
+                    byte[] aid = null;
+
+                    if(mClfIsPn547) {
+
+                        Pair<byte[], Pair> transactionInfo = (Pair<byte[], Pair>) msg.obj;
+                        Pair<byte[], Integer> dataSrcInfo = (Pair<byte[], Integer>) transactionInfo.second;
+
+                        Log.d(TAG, "Event source " + dataSrcInfo.second);
+
+                        String evtSrc = "";
+                        String reader = "";
+                        if(dataSrcInfo.second == PN547NfcAdapterExt.UICC_ID_TYPE) {
+                            evtSrc = PN547NfcAdapterExt.UICC_ID;
+                            reader = SmartcardProxy.READER_UICC;
+                        } else if(dataSrcInfo.second == PN547NfcAdapterExt.SMART_MX_ID_TYPE) {
+                            evtSrc = PN547NfcAdapterExt.SMART_MX_ID;
+                            reader = SmartcardProxy.READER_ESE;
+                        }
+
+                        /* Send broadcast ordered */
+                        Intent TransactionIntent = new Intent();
+                        TransactionIntent.setAction(PN547NfcAdapterExt.ACTION_TRANSACTION_DETECTED);
+                        TransactionIntent.putExtra(PN547NfcAdapterExt.EXTRA_AID, transactionInfo.first);
+                        TransactionIntent.putExtra(PN547NfcAdapterExt.EXTRA_DATA, dataSrcInfo.first);
+                        TransactionIntent.putExtra(PN547NfcAdapterExt.EXTRA_SOURCE, evtSrc);
+
+                        if (DBG) {
+                            Log.d(TAG, "Start Activity Card Emulation event");
+                        }
+
+                        if(mSmartcardProxy.isSmartcardServiceAvailable()) {
+                            mSmartcardProxy.sendNfcEventBroadcast(TransactionIntent, transactionInfo.first, reader);
+                        } else {
+                            mContext.sendBroadcast(TransactionIntent, NFC_PERM);
+                        }
+                        aid = transactionInfo.first;
+                    }
+                    else
+                        aid = (byte[]) msg.obj;
+
                     /* Send broadcast */
                     Intent aidIntent = new Intent();
                     aidIntent.setAction(ACTION_AID_SELECTED);
                     aidIntent.putExtra(EXTRA_AID, aid);
                     if (DBG) Log.d(TAG, "Broadcasting " + ACTION_AID_SELECTED);
                     sendSeBroadcast(aidIntent);
+                    break;
+
+                 case MSG_CONNECTIVITY_EVENT:
+                    if (DBG) {
+                        Log.d(TAG, "SE EVENT CONNECTIVITY");
+                    }
+                    Integer evtSrcInfo = (Integer) msg.obj;
+                    Log.d(TAG, "Event source " + evtSrcInfo);
+                    String evtSrc = "";
+                    if(evtSrcInfo == PN547NfcAdapterExt.UICC_ID_TYPE) {
+                        evtSrc = PN547NfcAdapterExt.UICC_ID;
+                    } else if(evtSrcInfo == PN547NfcAdapterExt.SMART_MX_ID_TYPE) {
+                        evtSrc = PN547NfcAdapterExt.SMART_MX_ID;
+                    }
+
+                    Intent eventConnectivityIntent = new Intent();
+                    eventConnectivityIntent.setAction(PN547NfcAdapterExt.ACTION_CONNECTIVITY_EVENT_DETECTED);
+                    eventConnectivityIntent.putExtra(PN547NfcAdapterExt.EXTRA_SOURCE, evtSrc);
+                    if (DBG) {
+                        Log.d(TAG, "Broadcasting Intent");
+                    }
+                    mContext.sendBroadcast(eventConnectivityIntent, NFC_PERM);
                     break;
 
                 case MSG_SE_EMV_CARD_REMOVAL:
