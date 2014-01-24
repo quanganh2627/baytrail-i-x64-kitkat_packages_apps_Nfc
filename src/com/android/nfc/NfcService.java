@@ -103,11 +103,14 @@ import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Set;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.vzw.nfc.AidFilter;
 
@@ -280,8 +283,9 @@ public class NfcService implements DeviceHostListener {
     // fields below are used in multiple threads and protected by synchronized(this)
     final HashMap<Integer, Object> mObjectMap = new HashMap<Integer, Object>();
     // mSePackages holds packages that accessed the SE, but only for the owner user,
-    // as SE access is not granted for non-owner users.
-    HashSet<String> mSePackages = new HashSet<String>();
+    // as SE access is not granted for non-owner users. This set may be access by various thread
+    // so we need to keep it synchrnoized.
+    Set<String> mSePackages = Collections.synchronizedSet(new HashSet<String>());
     int mScreenState;
     boolean mInProvisionMode; // whether we're in setup wizard and enabled NFC provisioning
     boolean mIsNdefPushEnabled;
@@ -294,7 +298,7 @@ public class NfcService implements DeviceHostListener {
     long mSeSupport;
     ReaderModeParams mReaderModeParams;
 
-    List<PackageInfo> mInstalledPackages; // cached version of installed packages
+    final AtomicReference<List<PackageInfo>> mInstalledPackages = new AtomicReference<List<PackageInfo>>(); // cached version of installed packages
 
     // mState is protected by this, however it is only modified in onCreate()
     // and the default AsyncTask thread so it is read unprotected from that
@@ -715,9 +719,7 @@ public class NfcService implements DeviceHostListener {
     void updatePackageCache() {
         PackageManager pm = mContext.getPackageManager();
         List<PackageInfo> packages = pm.getInstalledPackages(0, UserHandle.USER_OWNER);
-        synchronized (this) {
-            mInstalledPackages = packages;
-        }
+        mInstalledPackages.set(packages);
     }
 
     int checkScreenState() {
@@ -2697,8 +2699,9 @@ public class NfcService implements DeviceHostListener {
             // Resume app switches so the receivers can start activites without delay
             mNfcDispatcher.resumeAppSwitches();
 
-            synchronized(this) {
-                for (PackageInfo pkg : mInstalledPackages) {
+            List<PackageInfo> list = mInstalledPackages.get();
+            if(list != null) {
+                for (PackageInfo pkg : list) {
                     if (pkg != null && pkg.applicationInfo != null) {
                         if (mNfceeAccessControl.check(pkg.applicationInfo)) {
                             intent.setPackage(pkg.packageName);
@@ -2851,11 +2854,8 @@ public class NfcService implements DeviceHostListener {
                         if (data == null) return;
                         String packageName = data.getSchemeSpecificPart();
 
-                        synchronized (NfcService.this) {
-                            if (mSePackages.contains(packageName)) {
-                                new EnableDisableTask().execute(TASK_EE_WIPE);
-                                mSePackages.remove(packageName);
-                            }
+                        if (mSePackages.contains(packageName) && mSePackages.remove(packageName)) {
+                            new EnableDisableTask().execute(TASK_EE_WIPE);
                         }
                     }
                 }
