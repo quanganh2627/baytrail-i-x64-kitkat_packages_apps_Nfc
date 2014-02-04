@@ -1889,6 +1889,12 @@ static void setListenMode()
         startRfDiscovery (false);
     }
     SecureElement::getInstance().getEeHandleList(ee_handleList, &count);
+
+    if(count > NFA_EE_MAX_EE_SUPPORTED) {
+       count = NFA_EE_MAX_EE_SUPPORTED;
+       ALOGW("in function %s: count limited to size of ee_handleList", __FUNCTION__);
+    }
+
     for (i = 0; i < count; i++)
     {
         seId = SecureElement::getInstance().getGenericEseId(ee_handleList[i]);
