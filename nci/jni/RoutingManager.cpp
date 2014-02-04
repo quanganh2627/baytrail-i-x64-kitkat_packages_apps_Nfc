@@ -113,6 +113,13 @@ void RoutingManager::cleanRouting()
     static const char fn [] = "SecureElement::cleanRouting";
 
     SecureElement::getInstance().getEeHandleList(ee_handleList, &count);
+
+    if(count > (SecureElement::MAX_NUM_EE))
+    {
+        count =  SecureElement::MAX_NUM_EE;
+        ALOGW("%s: Number of ee_HandleList limited to %d", fn, count);
+    }
+
     for ( i = 0; i < count; i++)
     {
         nfaStat =  NFA_EeSetDefaultTechRouting(ee_handleList[i],0,0,0);
@@ -644,6 +651,12 @@ void RoutingManager::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* event
 
                 rd_swp_req_t *data = (rd_swp_req_t*)malloc(sizeof(rd_swp_req_t));
 
+                if(data == NULL)
+                {
+                     ALOGE ("%s: NFA_EE_DISCOVER_REQ_EVT; no memory for rd_swp_req_t data*", __FUNCTION__);
+                     break;
+                }
+
                 data->tech_mask = 0x00;
                 if (info.ee_disc_info[xx].pa_protocol !=  0)
                     data->tech_mask |= NFA_TECHNOLOGY_MASK_A;
@@ -664,6 +677,13 @@ void RoutingManager::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* event
                         info.ee_disc_info[xx].pa_protocol,
                         info.ee_disc_info[xx].pb_protocol);
                 rd_swp_req_t *data = (rd_swp_req_t*)malloc(sizeof(rd_swp_req_t));
+
+                if(data == NULL)
+                {
+                     ALOGE ("%s: NFA_EE_DISCOVER_REQ_EVT; no memory for rd_swp_req_t data*", __FUNCTION__);
+                     break;
+                }
+
                 data->tech_mask = 0x00;
                 data->src = info.ee_disc_info[xx].ee_handle;
 
