@@ -355,8 +355,6 @@ public class NfcService implements DeviceHostListener {
 
     private CsmClientNfc mCsmClient;
 
-    private static final int MODEM_WAIT_TIMEOUT = 60000;
-
     public static void validateUserId(int userId) {
         if (userId != UserHandle.getCallingUserId()) {
             throw new SecurityException("userId passed in it not the calling user.");
@@ -918,7 +916,7 @@ public class NfcService implements DeviceHostListener {
                     if (null != mCsmClient) {
                         mIsWaitingModemUp = true;
                         Log.d(TAG, "Waiting on modem up");
-                        mCsmClient.startSync(MODEM_WAIT_TIMEOUT);
+                        mCsmClient.csmStartModem();
                     } else {
                        Log.e(TAG, "CsmClient is not available. Cannot enable NFC");
                        return false;
@@ -1066,7 +1064,7 @@ public class NfcService implements DeviceHostListener {
 
             if (mUseCsm) {
                 try {
-                    mCsmClient.stop(CsmClient.CSM_CLIENT_STOP_NO_UNBIND);
+                    mCsmClient.csmStop();
                 } catch (CsmException e) {
                     Log.e(TAG, e.getMessage());
                 }
@@ -1191,7 +1189,7 @@ public class NfcService implements DeviceHostListener {
 
             switch (mState) {
                 case NfcAdapter.STATE_OFF:
-                    this.stop();
+                    this.csmStop();
                     break;
                 case NfcAdapter.STATE_ON:
                 case NfcAdapter.STATE_TURNING_ON:
