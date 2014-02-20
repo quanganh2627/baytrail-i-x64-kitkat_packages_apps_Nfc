@@ -76,6 +76,9 @@ NfcTag::NfcTag ()
     memset (mTechLibNfcTypes, 0, sizeof(mTechLibNfcTypes));
     memset (mTechParams, 0, sizeof(mTechParams));
     memset(mLastKovioUid, 0, NFC_KOVIO_MAX_LEN);
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    memset(&mLastKovioTime, 0, sizeof(mLastKovioTime));
+#endif
 }
 
 
@@ -356,6 +359,18 @@ void NfcTag::discoverTechnologies (tNFA_ACTIVATED& activationData)
         mTechList [mNumTechList] = TARGET_TYPE_FELICA;
         break;
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    case NFC_PROTOCOL_T3BT:
+        {
+            mTechHandles [mNumTechList] = rfDetail.rf_disc_id;
+            mTechLibNfcTypes [mNumTechList] = rfDetail.protocol;
+            mTechList [mNumTechList] = TARGET_TYPE_ISO14443_3B; //is TagTechnology.NFC_B by Java API
+            //save the stack's data structure for interpretation later
+            memcpy (&(mTechParams[mNumTechList]), &(rfDetail.rf_tech_param), sizeof(rfDetail.rf_tech_param));
+        }
+        break;
+#endif
+
     case NFC_PROTOCOL_ISO_DEP: // type-4 tag uses technology ISO-DEP and technology A or B
         mTechList [mNumTechList] = TARGET_TYPE_ISO14443_4; // is TagTechnology.ISO_DEP by Java API
         if ( (rfDetail.rf_tech_param.mode == NFC_DISCOVERY_TYPE_POLL_A) ||
@@ -532,8 +547,11 @@ void NfcTag::discoverTechnologies (tNFA_DISC_RESULT& discoveryData)
         mTechList [mNumTechList] = TARGET_TYPE_MIFARE_CLASSIC;
         // save the stack's data structure for interpretation later
         memcpy (&(mTechParams[mNumTechList]), &(discovery_ntf.rf_tech_param), sizeof(discovery_ntf.rf_tech_param));
-            mNumTechList++;
-        mTechList [mNumTechList] = TARGET_TYPE_ISO14443_3A;
+        mNumTechList++;
+        if (mNumTechList < MAX_NUM_TECHNOLOGY)
+        {
+            mTechList [mNumTechList] = TARGET_TYPE_ISO14443_3A;
+        }
         break;
 #endif
 
@@ -893,6 +911,13 @@ void NfcTag::fillNativeNfcTagMembers4 (JNIEnv* e, jclass tag_cls, jobject tag, t
                 e->SetByteArrayRegion (actBytes.get(), 0, 1, (jbyte*) &mTechParams [i].param.pa.sel_rsp);
             }
             break;
+
+        case NFC_PROTOCOL_T3BT:
+            {
+                ALOGD ("%s: tech T3BT; chinaId card", fn);
+                actBytes.reset(e->NewByteArray(0));
+                break;
+            }
 #endif
 
         case NFC_PROTOCOL_ISO_DEP: //t4t
@@ -1034,10 +1059,25 @@ void NfcTag::fillNativeNfcTagMembers5 (JNIEnv* e, jclass tag_cls, jobject tag, t
     case NFC_DISCOVERY_TYPE_POLL_B_PRIME:
     case NFC_DISCOVERY_TYPE_LISTEN_B:
     case NFC_DISCOVERY_TYPE_LISTEN_B_PRIME:
-        ALOGD ("%s: tech B", fn);
-        uid.reset(e->NewByteArray(NFC_NFCID0_MAX_LEN));
-        e->SetByteArrayRegion(uid.get(), 0, NFC_NFCID0_MAX_LEN,
-                (jbyte*) &mTechParams [0].param.pb.nfcid0);
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+        if(activationData.activate_ntf.protocol != NFA_PROTOCOL_T3BT)
+        {
+#endif
+            ALOGD ("%s: tech B", fn);
+            uid.reset(e->NewByteArray(NFC_NFCID0_MAX_LEN));
+            e->SetByteArrayRegion(uid.get(), 0, NFC_NFCID0_MAX_LEN,
+                    (jbyte*) &mTechParams [0].param.pb.nfcid0);
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+        }
+        else
+        {
+            ALOGD ("%s: chinaId card", fn);
+            ALOGD ("%s: pipi_id[0]=%x", fn, mTechParams [0].param.pb.pupiid[0]);
+            uid.reset(e->NewByteArray(NFC_PUPIID_MAX_LEN));
+            e->SetByteArrayRegion(uid.get(), 0, NFC_PUPIID_MAX_LEN,
+                    (jbyte*) &mTechParams [0].param.pb.pupiid);
+        }
+#endif
         break;
 
     case NFC_DISCOVERY_TYPE_POLL_F:
@@ -1471,51 +1511,7 @@ void NfcTag::connectionEventHandler (UINT8 event, tNFA_CONN_EVT_DATA* data)
         }
     }
 }
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
-/*******************************************************************************
-**
-** Function:        isTypeBTag
-**
-** Description:     Whether the currently activated tag is Type B.
-**
-** Returns:         True if tag is Type B.
-**
-*******************************************************************************/
-bool NfcTag::isTypeBTag()
-{
-    static const char fn [] = "NfcTag::isTypeBTag";
-    bool retval = false;
 
-    for (int i = 0; i < mNumTechList; i++)
-    {
-        if ((mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_B) ||
-             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_B))
-        {
-            retval = true;
-            break;
-        }
-    }
-    ALOGD ("%s: return=%u", fn, retval);
-    return retval;
-}
-
-void NfcTag::getTypeATagUID(UINT8 **uid, UINT32 *len)
-{
-    for (int i =0; i < mNumTechList; i++)
-    {
-        if ((mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_A) ||
-             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_A))
-        {
-            *len = mTechParams [i].param.pa.nfcid1_len;
-            *uid = mTechParams [0].param.pa.nfcid1;
-            return;
-        }
-    }
-
-    *len = 0;
-    *uid = NULL;
-}
-#endif
 /*******************************************************************************
 **
 ** Function         setActive
@@ -1597,3 +1593,50 @@ void NfcTag::setTransceiveTimeout (int techId, int timeout)
     else
         ALOGE ("%s: invalid tech=%d", fn, techId);
 }
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+/*******************************************************************************
+**
+** Function:        isTypeBTag
+**
+** Description:     Whether the currently activated tag is Type B.
+**
+** Returns:         True if tag is Type B.
+**
+*******************************************************************************/
+bool NfcTag::isTypeBTag ()
+{
+    static const char fn [] = "NfcTag::isTypeBTag";
+    bool retval = false;
+
+    for (int i =0; i < mNumTechList; i++)
+    {
+        if ( (mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_B) ||
+             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_B) )
+        {
+            retval = true;
+            break;
+        }
+    }
+    ALOGD ("%s: return=%u", fn, retval);
+    return retval;
+}
+
+
+void NfcTag::getTypeATagUID(UINT8 **uid, UINT32 *len)
+{
+    for (int i =0; i < mNumTechList; i++)
+    {
+        if ( (mTechParams[i].mode == NFC_DISCOVERY_TYPE_POLL_A) ||
+             (mTechParams[i].mode == NFC_DISCOVERY_TYPE_LISTEN_A) )
+        {
+            *len = mTechParams [i].param.pa.nfcid1_len;
+            *uid = mTechParams [0].param.pa.nfcid1;
+            return;
+        }
+    }
+
+    *len = 0;
+    *uid = NULL;
+}
+#endif

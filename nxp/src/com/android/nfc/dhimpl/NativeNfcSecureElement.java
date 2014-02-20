@@ -64,4 +64,12 @@ public class NativeNfcSecureElement {
     public native int[] doGetTechList(int handle);
 
     public native byte [] doGetUid(int handle);
+
+    public boolean doReset(int handle) {
+        return false;
+    }
+
+    public byte[] doGetAtr (int handle) {
+        return null;
+    }
 }

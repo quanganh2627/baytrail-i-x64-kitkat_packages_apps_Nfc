@@ -120,7 +120,7 @@ public:
     *******************************************************************************/
     void finalize ();
 
-
+#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
     /*******************************************************************************
     **
     ** Function:        getSecureElementIdList
@@ -132,6 +132,7 @@ public:
     **
     *******************************************************************************/
     jintArray getSecureElementIdList (JNIEnv* e);
+#endif
 
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     /*******************************************************************************
@@ -216,7 +217,11 @@ public:
     bool transceive (UINT8* xmitBuffer, INT32 xmitBufferSize, UINT8* recvBuffer,
                      INT32 recvBufferMaxSize, INT32& recvBufferActualSize, INT32 timeoutMillisec);
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    void notifyModeSet (tNFA_HANDLE eeHandle, bool success, tNFA_EE_STATUS eeStatus);
+#else
     void notifyModeSet (tNFA_HANDLE eeHandle, bool success);
+#endif
 
     /*******************************************************************************
     **
@@ -418,6 +423,19 @@ public:
 
     bool SecEle_Modeset(UINT8 type);
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    /*******************************************************************************
+    **
+    ** Function:        routeToSecureElement
+    **
+    ** Description:     Adjust controller's listen-mode routing table so transactions
+    **                  are routed to the secure elements as specified in route.xml.
+    **
+    ** Returns:         True if ok.
+    **
+    *******************************************************************************/
+    bool routeToSecureElement ();
+#endif
 
     /*******************************************************************************
     **
@@ -481,6 +499,20 @@ public:
     bool isRfFieldOn();
 
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+ /*******************************************************************************
+    **
+    ** Function:        setEseListenTechMask
+    **
+    ** Description:     Can be used to force ESE to only listen the specific
+    **                  Technologies.
+    **                  NFA_TECHNOLOGY_MASK_A       0x01
+    **                  NFA_TECHNOLOGY_MASK_B       0x02
+    **
+    ** Returns:         True if listening is configured.
+    **
+    *******************************************************************************/
+    bool setEseListenTechMask(UINT8 tech_mask);
+#endif
 
     bool sendEvent(UINT8 event);
 
@@ -506,7 +538,10 @@ public:
     SyncEvent       mRoutingEvent;
     SyncEvent       mAidAddRemoveEvent;
     SyncEvent       mUiccListenEvent;
+    SyncEvent       mEseListenEvent;
 
+
+#ifdef NFCC_PN547
     static const UINT8 EVT_END_OF_APDU_TRANSFER = 0x21;    //NXP Propritory
     static const UINT8 EVT_RESET_ESE = 0x11;
 #endif
@@ -514,22 +549,28 @@ public:
 private:
     static const unsigned int MAX_RESPONSE_SIZE = 1024;
     enum RouteSelection {NoRoute, DefaultRoute, SecElemRoute};
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
-    static const int MAX_NUM_EE = 5;    //max number of EE's
-#endif
+#ifdef GEMATO_SE_SUPPORT
+    static const UINT8 STATIC_PIPE_0x70 = 0x19; //PN547 Gemalto's proprietary static pipe
+#else
     static const UINT8 STATIC_PIPE_0x70 = 0x70; //Broadcom's proprietary static pipe
+#endif
     static const UINT8 STATIC_PIPE_0x71 = 0x71; //Broadcom's proprietary static pipe
     static const UINT8 EVT_SEND_DATA = 0x10;    //see specification ETSI TS 102 622 v9.0.0 (Host Controller Interface); section 9.3.3.3
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+#ifdef NFCC_PN547
     static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x4C0;//0x401; //handle to secure element in slot 0
 #else
     static const tNFA_HANDLE EE_HANDLE_0xF3 = 0x4F3; //handle to secure element in slot 0
 #endif
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+#ifdef NFCC_PN547
+#ifdef NXP_UICC_ENABLE
     static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x402; //handle to secure element in slot 1
 #else
     static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x0F4;//0x4C0; //handle to secure element in slot 1
 #endif
+#else
+    static const tNFA_HANDLE EE_HANDLE_0xF4 = 0x4F4; //handle to secure element in slot 1
+#endif
+
     static SecureElement sSecElem;
     static const char* APP_NAME;
 

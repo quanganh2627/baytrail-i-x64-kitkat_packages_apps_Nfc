@@ -17,7 +17,7 @@
  *
  *  The original Work has been changed by NXP Semiconductors.
  *
- *  Copyright (C) 2013 NXP Semiconductors
+ *  Copyright (C) 2013-2014 NXP Semiconductors
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -44,6 +44,8 @@ import android.nfc.tech.TagTechnology;
 import android.os.SystemProperties;
 import android.util.Log;
 
+import java.io.File;
+
 import com.android.nfc.DeviceHost;
 import com.android.nfc.LlcpException;
 
@@ -52,6 +54,12 @@ import com.android.nfc.LlcpException;
  */
 public class NativeNfcManager implements DeviceHost {
     private static final String TAG = "NativeNfcManager";
+
+    // Only for PN547
+    private static final String NFC_CONTROLLER_FIRMWARE_FILE_NAME = "/vendor/firmware/libpn547_fw.so";
+    private static final String PREF_FIRMWARE_MODTIME = "firmware_modtime";
+    private static final long FIRMWARE_MODTIME_DEFAULT = -1;
+
     static final String PREF = "NciDeviceHost";
 
     static final int DEFAULT_LLCP_MIU = 1980;
@@ -83,22 +91,69 @@ public class NativeNfcManager implements DeviceHost {
 
     private final DeviceHostListener mListener;
     private final Context mContext;
-    private boolean pn547Clf;
+    private final boolean mPn547Clf;
+
     public NativeNfcManager(Context context, DeviceHostListener listener) {
         mListener = listener;
         initializeNativeStructure();
         mContext = context;
+        mPn547Clf = "pn547".equals(SystemProperties.get("ro.nfc.nfcc", ""));
     }
 
     public native boolean initializeNativeStructure();
 
     private native boolean doDownload();
 
+    public boolean download() {
+        return doDownload();
+    }
+
     public native int doGetLastError();
 
     @Override
     public void checkFirmware() {
-        doDownload();
+        if(mPn547Clf) checkFirmware_pn547();
+        else doDownload();
+    }
+
+    public void checkFirmware_pn547() {
+        // Check that the NFC controller firmware is up to date.  This
+        // ensures that firmware updates are applied in a timely fashion,
+        // and makes it much less likely that the user will have to wait
+        // for a firmware download when they enable NFC in the settings
+        // app.  Firmware download can take some time, so this should be
+        // run in a separate thread.
+
+        // check the timestamp of the firmware file
+        File firmwareFile;
+        int nbRetry = 0;
+        try {
+            firmwareFile = new File(NFC_CONTROLLER_FIRMWARE_FILE_NAME);
+        } catch(NullPointerException npe) {
+            Log.e(TAG,"path to firmware file was null");
+            return;
+        }
+
+        long modtime = firmwareFile.lastModified();
+
+        SharedPreferences prefs = mContext.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        long prev_fw_modtime = prefs.getLong(PREF_FIRMWARE_MODTIME, FIRMWARE_MODTIME_DEFAULT);
+        Log.d(TAG,"prev modtime: " + prev_fw_modtime);
+        Log.d(TAG,"new modtime: " + modtime);
+        if (prev_fw_modtime == modtime) {
+            return;
+        }
+
+        // FW download.
+        Log.d(TAG,"Perform Download");
+        if(doDownload()) {
+            Log.d(TAG,"Download Success");
+            // Now that we've finished updating the firmware, save the new modtime.
+            prefs.edit().putLong(PREF_FIRMWARE_MODTIME, modtime).apply();
+        }
+     else {
+            Log.d(TAG,"Download Failed");
+        }
     }
 
     private native boolean doInitialize();
@@ -107,7 +162,6 @@ public class NativeNfcManager implements DeviceHost {
     public boolean initialize() {
         SharedPreferences prefs = mContext.getSharedPreferences(PREF, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
-        pn547Clf = "pn547".equals(SystemProperties.get("ro.nfc.nfcc", ""));
         if (prefs.getBoolean(NativeNfcSecureElement.PREF_SE_WIRED, false)) {
             try {
                 Thread.sleep (12000);
@@ -141,10 +195,31 @@ public class NativeNfcManager implements DeviceHost {
     public native boolean sendRawFrame(byte[] data);
 
     @Override
-    public native boolean routeAid(byte[] aid, int route);
+    public boolean routeAid(byte[] aid, int route, int powerState) {
+
+        boolean status = true;
+        //if(mIsAidFilterSupported) {
+            //Prepare a cache of AIDs, and only send when vzwSetFilterList is called.
+          //  mAidFilter.addAppAidToCache(aid, route, powerState);
+        //} else {
+            status = doRouteAid(aid, route, powerState);
+        //}
+
+        return status;
+    }
+
+    public native boolean doRouteAid(byte[] aid, int route, int powerState);
 
     @Override
-    public native boolean unrouteAid(byte[] aid);
+    public native void clearRouting();
+
+    @Override
+    public native void doSetSecureElementListenTechMask(int tech_mask);
+
+     @Override
+    public boolean unrouteAid(byte[] aid) {
+        throw new RuntimeException("unrouteAid(byte[] aid) is not supported");
+    }
 
     @Override
     public native void enableDiscovery();
@@ -162,11 +237,36 @@ public class NativeNfcManager implements DeviceHost {
     public native int[] doGetSecureElementList();
 
     @Override
-    public native void doSelectSecureElement();
+    public void doSelectSecureElement() {
+        throw new RuntimeException("doSelectSecureElement()");
+    }
 
     @Override
-    public native void doDeselectSecureElement();
+    public void doDeselectSecureElement() {
+        throw new RuntimeException("doDeselectSecureElement()");
+    }
 
+    @Override
+    public native void doSelectSecureElement(int seID);
+
+    @Override
+    public native void doDeselectSecureElement(int seID);
+
+    @Override
+    public native void doSetSEPowerOffState(int seID, boolean enable);
+
+    @Override
+    public native void setDefaultTechRoute(int seID, int tech_switchon, int tech_switchoff);
+
+    @Override
+    public native void setDefaultProtoRoute(int seID, int proto_switchon, int proto_switchoff);
+
+    public native int getChipVer();
+
+    @Override
+    public native void doSetVenConfigValue(int venconfig);
+
+    public native int GetDefaultSE();
 
     private native NativeLlcpConnectionlessSocket doCreateLlcpConnectionlessSocket(int nSap,
             String sn);
@@ -296,8 +396,8 @@ public class NativeNfcManager implements DeviceHost {
                  * such a frame is supported. Extended length frames however
                  * are not supported.
                  */
-                if (pn547Clf) {
-                    return 0x1000A; // Will be automatically split in two frames on the RF layer
+                if (mPn547Clf) {
+                    return 0xFEFF; // Will be automatically split in two frames on the RF layer
                 } else {
                     return 261;
                 }
@@ -308,6 +408,8 @@ public class NativeNfcManager implements DeviceHost {
         }
 
     }
+    @Override
+    public native int setEmvCoPollProfile(boolean enable, int route);
 
     private native void doSetP2pInitiatorModes(int modes);
     @Override
@@ -366,6 +468,15 @@ public class NativeNfcManager implements DeviceHost {
         doDisableReaderMode();
         return true;
     }
+
+    @Override
+    public native int doGetSecureElementTechList();
+
+    public native void doPrbsOn(int tech, int rate);
+    public native void doPrbsOff();
+    public native int SWPSelfTest(int ch);
+    public native int getFWVersion();
+    public native void doSetEEPROM(byte[] val);
 
     /**
      * Notifies Ndef Message (TODO: rename into notifyTargetDiscovered)

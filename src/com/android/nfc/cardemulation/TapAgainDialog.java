@@ -26,12 +26,13 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.nfc.NfcAdapter;
-import android.nfc.cardemulation.ApduServiceInfo;
 import android.nfc.cardemulation.CardEmulation;
 import android.os.Bundle;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.TextView;
+
+import com.nxp.nfc.cardemulation.ApduServiceInfoExt;
 
 import com.android.internal.R;
 import com.android.internal.app.AlertActivity;
@@ -64,7 +65,7 @@ public class TapAgainDialog extends AlertActivity implements DialogInterface.OnC
         mCardEmuManager = CardEmulation.getInstance(adapter);
         Intent intent = getIntent();
         String category = intent.getStringExtra(EXTRA_CATEGORY);
-        ApduServiceInfo serviceInfo = intent.getParcelableExtra(EXTRA_APDU_SERVICE);
+        ApduServiceInfoExt serviceInfo = intent.getParcelableExtra(EXTRA_APDU_SERVICE);
         IntentFilter filter = new IntentFilter(ACTION_CLOSE);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         registerReceiver(mReceiver, filter);
