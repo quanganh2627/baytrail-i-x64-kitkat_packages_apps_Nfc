@@ -22,6 +22,7 @@ namespace android
     extern jmethodID gCachedNfcManagerNotifyTransactionListeners;
 #if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     extern jmethodID gCachedNfcManagerNotifyConnectivityListeners;
+    extern jmethodID gCachedNfcManagerNotifyEmvcoMultiCardDetectedListeners;
 #endif
     extern jmethodID gCachedNfcManagerNotifyLlcpLinkActivation;
     extern jmethodID gCachedNfcManagerNotifyLlcpLinkDeactivated;
@@ -37,7 +38,6 @@ namespace android
     extern jmethodID gCachedNfcManagerNotifyHostEmuActivated;
     extern jmethodID gCachedNfcManagerNotifyHostEmuData;
     extern jmethodID gCachedNfcManagerNotifyHostEmuDeactivated;
-
     extern const char* gNativeP2pDeviceClassName;
     extern const char* gNativeLlcpServiceSocketClassName;
     extern const char* gNativeLlcpConnectionlessSocketClassName;

@@ -17,7 +17,7 @@
  *
  *  The original Work has been changed by NXP Semiconductors.
  *
- *  Copyright (C) 2013 NXP Semiconductors
+ *  Copyright(C) 2013-2014 NXP Semiconductors
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -288,7 +288,13 @@ static JNINativeMethod gMethods[] =
 {
    {"doNativeOpenSecureElementConnection", "()I", (void *) nativeNfcSecureElement_doOpenSecureElementConnection},
    {"doNativeDisconnectSecureElementConnection", "(I)Z", (void *) nativeNfcSecureElement_doDisconnectSecureElementConnection},
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+   {"doNativeResetSecureElement", "(I)Z", (void *) nativeNfcSecureElement_doResetSecureElement},
+#endif
    {"doTransceive", "(I[B)[B", (void *) nativeNfcSecureElement_doTransceive},
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+   {"doNativeGetAtr", "(I)[B", (void *) nativeNfcSecureElement_doGetAtr},
+#endif
 };
 
 

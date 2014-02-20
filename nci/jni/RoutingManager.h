@@ -38,11 +38,16 @@ public:
     static RoutingManager& getInstance ();
     bool initialize(nfc_jni_native_data* native);
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    void setDefaultTechRouting(int seId, int tech_switchon, int tech_switchoff);
+    void setDefaultProtoRouting(int seId, int proto_switchon, int proto_switchoff);
+#endif
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     bool addAidRouting(const UINT8* aid, UINT8 aidLen, int route, int power);
+    void clearAidRouting();
 #else
     bool addAidRouting(const UINT8* aid, UINT8 aidLen, int route);
-#endif
     bool removeAidRouting(const UINT8* aid, UINT8 aidLen);
+#endif
     bool commitRouting();
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     void setRouting(bool);
@@ -68,8 +73,9 @@ private:
 
     // Fields below are final after initialize()
     nfc_jni_native_data* mNativeData;
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     int mDefaultEe;
+    bool mIsDirty;
 #endif
     SyncEvent mEeRegisterEvent;
     SyncEvent mRoutingEvent;
