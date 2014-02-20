@@ -174,7 +174,7 @@ public class NativeNfcManager implements DeviceHost {
     }
 
     @Override
-    public boolean routeAid(byte[] aid, int route)
+    public boolean routeAid(byte[] aid, int route, int power)
     {
         return false;
     }
@@ -183,6 +183,11 @@ public class NativeNfcManager implements DeviceHost {
     public boolean unrouteAid(byte[] aid)
     {
        return false;
+    }
+
+    @Override
+    public void clearRouting() {
+        // empty function
     }
 
     @Override
@@ -207,11 +212,56 @@ public class NativeNfcManager implements DeviceHost {
     public native int[] doGetSecureElementList();
 
     @Override
+    public void doSelectSecureElement(int seID) {
+       doSelectSecureElement();
+    }
+
+    @Override
     public native void doSelectSecureElement();
+
+    @Override
+    public void doDeselectSecureElement(int seID) {
+       doDeselectSecureElement();
+    }
 
     @Override
     public native void doDeselectSecureElement();
 
+    @Override
+    public void doSetSEPowerOffState(int seID,boolean enable) {
+        // empty function
+    }
+
+    @Override
+    public void setDefaultTechRoute(int seID, int tech_switchon, int tech_switchoff) {
+        // empty function
+    }
+
+    @Override
+    public void setDefaultProtoRoute(int seID, int proto_switchon, int proto_switchoff) {
+        // empty function
+    }
+
+    @Override
+    public int setEmvCoPollProfile(boolean enable, int route) {
+        // empty function
+        return 0;
+    }
+
+    @Override
+    public void doSetVenConfigValue(int VenConfig) {
+        // empty function
+    }
+
+    @Override
+    public int doGetSecureElementTechList() {
+        return 0;
+    }
+
+    @Override
+    public void doSetSecureElementListenTechMask(int tech_mask) {
+        // empty function
+    }
 
     private native NativeLlcpConnectionlessSocket doCreateLlcpConnectionlessSocket(int nSap,
             String sn);

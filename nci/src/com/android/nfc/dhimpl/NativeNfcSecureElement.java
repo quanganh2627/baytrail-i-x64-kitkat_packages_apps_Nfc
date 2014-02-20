@@ -59,6 +59,20 @@ public class NativeNfcSecureElement {
         return doNativeDisconnectSecureElementConnection(handle);
     }
 
+    private native boolean doNativeResetSecureElement(int handle);
+
+    public boolean doReset(int handle) {
+
+        return doNativeResetSecureElement(handle);
+    }
+
+    private native byte[] doNativeGetAtr(int handle);
+
+    public byte[] doGetAtr (int handle) {
+
+        return doNativeGetAtr(handle);
+    }
+
     public native byte[] doTransceive(int handle, byte[] data);
 
     public native int[] doGetTechList(int handle);

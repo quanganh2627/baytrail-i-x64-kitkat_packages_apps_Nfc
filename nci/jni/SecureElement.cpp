@@ -17,7 +17,7 @@
  *
  *  The original Work has been changed by NXP Semiconductors.
  *
- *  Copyright (C) 2013 NXP Semiconductors
+ *  Copyright (C) 2013-2014 NXP Semiconductors
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -159,6 +159,9 @@ void SecureElement::transceiveTimerProc (union sigval)
 SecureElement SecureElement::sSecElem;
 const char* SecureElement::APP_NAME = "nfc_jni";
 const UINT16 ACTIVE_SE_USE_ANY = 0xFFFF;
+#if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+char bcm_nfc_location[]="/etc";
+#endif
 
 /*******************************************************************************
 **
@@ -191,6 +194,7 @@ SecureElement::SecureElement ()
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     mGetAtrRspwait (false),
     mAtrInfolen (0),
+    mTransceiveWaitOk(false),
 #endif
     mRfFieldIsOn(false)
 {
@@ -203,6 +207,7 @@ SecureElement::SecureElement ()
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     memset (mVerInfo, 0, sizeof(mVerInfo));
     memset (mAtrInfo, 0, sizeof(mAtrInfo));
+    memset (&mNfceeData_t, 0, sizeof(mNfceeData_t));
 #endif
 }
 
@@ -279,7 +284,7 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
     if (GetNumValue("ACTIVE_SE", &num, sizeof(num)))
     {
         mActiveSeOverride = num;
-    ALOGD ("%s: Active SE override: 0x%X", fn, mActiveSeOverride);
+        ALOGD ("%s: Active SE override: 0x%X", fn, mActiveSeOverride);
     }
 
     if (GetNumValue("OBERTHUR_WARM_RESET_COMMAND", &num, sizeof(num)))
@@ -319,7 +324,11 @@ bool SecureElement::initialize (nfc_jni_native_data* native)
     // If the controller has an HCI Network, register for that
     for (size_t xx = 0; xx < mActualNumEe; xx++)
     {
+#ifdef GEMATO_SE_SUPPORT
+        if ( (mEeInfo[xx].num_interface > 0) && (mEeInfo[xx].ee_handle != EE_HANDLE_0xF4 ) )
+#else
         if ((mEeInfo[xx].num_interface > 0) && (mEeInfo[xx].ee_interface[0] == NCI_NFCEE_INTERFACE_HCI_ACCESS) )
+#endif
         {
             ALOGD ("%s: Found HCI network, try hci register", fn);
 
@@ -394,6 +403,11 @@ bool SecureElement::getEeInfo()
     // If mbNewEE is true then there is new EE info.
     if (mbNewEE)
     {
+#if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+#ifdef CHECK_FOR_NFCEE_CONFIGURATION
+        memset (&mNfceeData_t, 0, sizeof (mNfceeData_t));
+#endif
+#endif
         mActualNumEe = MAX_NUM_EE;
 
         if ((nfaStat = NFA_EeGetInfo (&mActualNumEe, mEeInfo)) != NFA_STATUS_OK)
@@ -496,6 +510,60 @@ bool SecureElement::isRfFieldOn() {
     }
 }
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+/*******************************************************************************
+**
+** Function:        setEseListenTechMask
+**
+** Description:     Can be used to force ESE to only listen the specific
+**                  Technologies.
+**                  NFA_TECHNOLOGY_MASK_A       0x01
+**                  NFA_TECHNOLOGY_MASK_B       0x02
+**
+** Returns:         True if listening is configured.
+**
+*******************************************************************************/
+bool SecureElement::setEseListenTechMask(UINT8 tech_mask ) {
+
+    static const char fn [] = "SecureElement::setEseListenTechMask";
+    tNFA_STATUS nfaStat;
+
+    ALOGD ("%s: enter", fn);
+
+    if (!mIsInit)
+    {
+        ALOGE ("%s: not init", fn);
+        return (NULL);
+    }
+
+    {
+        SyncEventGuard guard (SecureElement::getInstance().mEseListenEvent);
+        nfaStat = NFA_CeConfigureEseListenTech (0x4C0, (0x00));
+        if(nfaStat == NFA_STATUS_OK)
+        {
+            SecureElement::getInstance().mEseListenEvent.wait ();
+            return true;
+        }
+        else
+            ALOGE ("fail to stop ESE listen");
+    }
+
+    {
+        SyncEventGuard guard (SecureElement::getInstance().mEseListenEvent);
+        nfaStat = NFA_CeConfigureEseListenTech (0x4C0, (tech_mask));
+        if(nfaStat == NFA_STATUS_OK)
+        {
+            SecureElement::getInstance().mEseListenEvent.wait ();
+            return true;
+        }
+        else
+            ALOGE ("fail to start ESE listen");
+    }
+
+    return false;
+}
+#endif
+
 /*******************************************************************************
 **
 ** Function:        isActivatedInListenMode
@@ -562,6 +630,7 @@ jintArray SecureElement::getListOfEeHandles (JNIEnv* e)
 }
 #endif
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
 /*******************************************************************************
 **
 ** Function:        getSecureElementIdList
@@ -603,7 +672,7 @@ jintArray SecureElement::getSecureElementIdList (JNIEnv* e)
     ALOGD("%s: exit", fn);
     return list;
 }
-
+#endif
 
 /*******************************************************************************
 **
@@ -1388,8 +1457,11 @@ TheEnd:
     return (isSuccess);
 }
 
-
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+void SecureElement::notifyModeSet (tNFA_HANDLE eeHandle, bool success, tNFA_EE_STATUS eeStatus)
+#else
 void SecureElement::notifyModeSet (tNFA_HANDLE eeHandle, bool success)
+#endif
 {
     static const char* fn = "SecureElement::notifyModeSet";
     if (success)
@@ -1397,7 +1469,11 @@ void SecureElement::notifyModeSet (tNFA_HANDLE eeHandle, bool success)
         tNFA_EE_INFO *pEE = sSecElem.findEeByHandle (eeHandle);
         if (pEE)
         {
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            pEE->ee_status = eeStatus;
+#else
             pEE->ee_status ^= 1;
+#endif
             ALOGD ("%s: NFA_EE_MODE_SET_EVT; pEE->ee_status: %s (0x%04x)", fn, SecureElement::eeStatusToString(pEE->ee_status), pEE->ee_status);
         }
         else
@@ -1436,7 +1512,11 @@ void SecureElement::notifyListenModeState (bool isActivated) {
         e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifySeListenActivated);
     }
     else {
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+        //work-around for ISIS, don't tirgger in case of deativate event
+#else
         e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifySeListenDeactivated);
+#endif
     }
 
     if (e->ExceptionCheck())
@@ -2213,8 +2293,13 @@ tNFA_HANDLE SecureElement::getDefaultEeHandle ()
         ALOGE ("%s: - mEeInfo[xx].ee_handle = 0x%02x, mEeInfo[xx].ee_status = 0x%02x", fn,mEeInfo[xx].ee_handle, mEeInfo[xx].ee_status);
 
         if ((mEeInfo[xx].num_interface != 0)
+#ifndef GEMATO_SE_SUPPORT
              &&
             (mEeInfo[xx].ee_interface[0] != NCI_NFCEE_INTERFACE_HCI_ACCESS)
+#else
+            &&
+            (mEeInfo[xx].ee_handle == EE_HANDLE_0xF3 || mEeInfo[xx].ee_handle == EE_HANDLE_0xF4)
+#endif
             &&
             (mEeInfo[xx].ee_status != NFC_NFCEE_STATUS_INACTIVE))
             return (mEeInfo[xx].ee_handle);
@@ -2301,6 +2386,14 @@ void SecureElement::connectionEventHandler (UINT8 event, tNFA_CONN_EVT_DATA* /*e
             mUiccListenEvent.notifyOne ();
         }
         break;
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    case NFA_CE_ESE_LISTEN_CONFIGURED_EVT:
+        {
+            SyncEventGuard guard (mEseListenEvent);
+            mEseListenEvent.notifyOne ();
+        }
+        break;
+#endif
     }
 }
 
@@ -2336,6 +2429,77 @@ bool SecureElement::getAtr(jint seID, UINT8* recvBuffer, INT32 *recvBufferSize)
 
     return (nfaStat == NFA_STATUS_OK)?true:false;
 }
+
+/*******************************************************************************
+**
+** Function:        routeToSecureElement
+**
+** Description:     Adjust controller's listen-mode routing table so transactions
+**                  are routed to the secure elements.
+**
+** Returns:         True if ok.
+**
+*******************************************************************************/
+bool SecureElement::routeToSecureElement ()
+{
+    static const char fn [] = "SecureElement::routeToSecureElement";
+    ALOGD ("%s: enter", fn);
+    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
+    tNFA_TECHNOLOGY_MASK tech_mask = NFA_TECHNOLOGY_MASK_A | NFA_TECHNOLOGY_MASK_B;
+    bool retval = false;
+
+    if (! mIsInit)
+    {
+        ALOGE ("%s: not init", fn);
+        return false;
+    }
+
+    if (mCurrentRouteSelection == SecElemRoute)
+    {
+        ALOGE ("%s: already sec elem route", fn);
+        return true;
+    }
+
+    if (mActiveEeHandle == NFA_HANDLE_INVALID)
+    {
+        ALOGE ("%s: invalid EE handle", fn);
+        return false;
+    }
+
+    tNFA_EE_INFO* eeinfo = findEeByHandle(mActiveEeHandle);
+    if(eeinfo!=NULL){
+        if(eeinfo->la_protocol == 0x00 && eeinfo->lb_protocol != 0x00 )
+        {
+            UINT8 val[] = {0x00};
+
+            ALOGD ("%s: No tech A on EE ", fn);
+
+            ALOGD ("%s: Configure TypeB", __FUNCTION__);
+            {
+                SyncEventGuard guard (android::sNfaSetConfigEvent);
+                nfaStat = NFA_SetConfig(NCI_PARAM_ID_LA_SEL_INFO, sizeof(UINT8), val);
+                if (nfaStat == NFA_STATUS_OK)
+                    android::sNfaSetConfigEvent.wait ();
+            }
+        }
+        else
+        {
+            UINT8 val[] = {0x60};
+
+            ALOGD ("%s: tech A on EE ", fn);
+            {
+                SyncEventGuard guard (android::sNfaSetConfigEvent);
+                nfaStat = NFA_SetConfig(NCI_PARAM_ID_LA_SEL_INFO, sizeof(UINT8), val);
+                if (nfaStat == NFA_STATUS_OK)
+                    android::sNfaSetConfigEvent.wait ();
+            }
+
+        }
+    }
+
+    ALOGD ("%s: exit; ok=%u", fn, retval);
+    return retval;
+}
 #endif
 
 /*******************************************************************************
@@ -2350,7 +2514,11 @@ bool SecureElement::getAtr(jint seID, UINT8* recvBuffer, INT32 *recvBufferSize)
 *******************************************************************************/
 bool SecureElement::isBusy ()
 {
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    bool retval = mIsPiping ;
+#else
     bool retval = (mCurrentRouteSelection == SecElemRoute) || mIsPiping;
+#endif
     ALOGD ("SecureElement::isBusy: %u", retval);
     return retval;
 }

@@ -17,7 +17,7 @@
  *
  *  The original Work has been changed by NXP Semiconductors.
  *
- *  Copyright (C) 2013 NXP Semiconductors
+ *  Copyright (C) 2013-2014 NXP Semiconductors
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -234,14 +234,27 @@ public interface DeviceHost {
     public int[] doGetSecureElementList();
 
     public void doSelectSecureElement();
+    public void doSelectSecureElement(int seID);
 
     public void doDeselectSecureElement();
+    public void doDeselectSecureElement(int seID);
+
+    public void doSetSecureElementListenTechMask(int tech_mask);
+    public int doGetSecureElementTechList();
+
+    public void doSetSEPowerOffState(int seID,boolean enable);
+
+    public void setDefaultTechRoute(int seID, int tech_switchon, int tech_switchoff);
+    public void setDefaultProtoRoute(int seID, int proto_switchon, int proto_switchoff);
 
     public boolean sendRawFrame(byte[] data);
 
-    public boolean routeAid(byte[] aid, int route);
+    public boolean routeAid(byte[] aid, int route, int powerState);
 
     public boolean unrouteAid(byte[] aid);
+    public void clearRouting();
+
+    public int setEmvCoPollProfile(boolean enable, int route);
 
     public LlcpConnectionlessSocket createLlcpConnectionlessSocket(int nSap, String sn)
             throws LlcpException;
@@ -281,6 +294,8 @@ public interface DeviceHost {
     int getDefaultLlcpMiu();
 
     int getDefaultLlcpRwSize();
+
+    void doSetVenConfigValue(int VenConfig);
 
     String dump();
 
