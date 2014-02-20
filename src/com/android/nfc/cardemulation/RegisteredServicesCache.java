@@ -37,6 +37,8 @@ import android.util.SparseArray;
 
 import com.google.android.collect.Maps;
 
+import com.nxp.nfc.cardemulation.ApduServiceInfoExt;
+
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -48,9 +50,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.android.nfc.NfcService;
+
+import com.vzw.nfc.AidFilter;
+
 public class RegisteredServicesCache {
     static final String TAG = "RegisteredServicesCache";
-    static final boolean DEBUG = false;
+    static final boolean DEBUG = true;
 
     final Context mContext;
     final AtomicReference<BroadcastReceiver> mReceiver;
@@ -61,16 +67,16 @@ public class RegisteredServicesCache {
     // mUserServices holds the card emulation services that are running for each user
     final SparseArray<UserServices> mUserServices = new SparseArray<UserServices>();
     final Callback mCallback;
-
+    final NfcService mNfcService;
     public interface Callback {
-        void onServicesUpdated(int userId, final List<ApduServiceInfo> services);
+        void onServicesUpdated(int userId, final List<ApduServiceInfoExt> services);
     };
 
     private static class UserServices {
         /**
          * All services that have registered
          */
-        public final HashMap<ComponentName, ApduServiceInfo> services =
+        public final HashMap<ComponentName, ApduServiceInfoExt> services =
                 Maps.newHashMap(); // Re-built at run-time
     };
 
@@ -86,7 +92,7 @@ public class RegisteredServicesCache {
     public RegisteredServicesCache(Context context, Callback callback) {
         mContext = context;
         mCallback = callback;
-
+        mNfcService = NfcService.getInstance();
         final BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -129,14 +135,14 @@ public class RegisteredServicesCache {
         mContext.registerReceiverAsUser(mReceiver.get(), UserHandle.ALL, sdFilter, null, null);
     }
 
-    void dump(ArrayList<ApduServiceInfo> services) {
-        for (ApduServiceInfo service : services) {
+    void dump(ArrayList<ApduServiceInfoExt> services) {
+        for (ApduServiceInfoExt service : services) {
             if (DEBUG) Log.d(TAG, service.toString());
         }
     }
 
-    boolean containsServiceLocked(ArrayList<ApduServiceInfo> services, ComponentName serviceName) {
-        for (ApduServiceInfo service : services) {
+    boolean containsServiceLocked(ArrayList<ApduServiceInfoExt> services, ComponentName serviceName) {
+        for (ApduServiceInfoExt service : services) {
             if (service.getComponent().equals(serviceName)) return true;
         }
         return false;
@@ -146,15 +152,15 @@ public class RegisteredServicesCache {
         return getService(userId, service) != null;
     }
 
-    public ApduServiceInfo getService(int userId, ComponentName service) {
+    public ApduServiceInfoExt getService(int userId, ComponentName service) {
         synchronized (mLock) {
             UserServices userServices = findOrCreateUserLocked(userId);
             return userServices.services.get(service);
         }
     }
 
-    public List<ApduServiceInfo> getServices(int userId) {
-        final ArrayList<ApduServiceInfo> services = new ArrayList<ApduServiceInfo>();
+    public List<ApduServiceInfoExt> getServices(int userId) {
+        final ArrayList<ApduServiceInfoExt> services = new ArrayList<ApduServiceInfoExt>();
         synchronized (mLock) {
             UserServices userServices = findOrCreateUserLocked(userId);
             services.addAll(userServices.services.values());
@@ -166,8 +172,8 @@ public class RegisteredServicesCache {
         final ArrayList<ApduServiceInfo> services = new ArrayList<ApduServiceInfo>();
         synchronized (mLock) {
             UserServices userServices = findOrCreateUserLocked(userId);
-            for (ApduServiceInfo service : userServices.services.values()) {
-                if (service.hasCategory(category)) services.add(service);
+            for (ApduServiceInfoExt service : userServices.services.values()) {
+                if (service.hasCategory(category)) services.add(service.toApduServiceInfo());
             }
         }
         return services;
@@ -191,7 +197,7 @@ public class RegisteredServicesCache {
             return;
         }
 
-        ArrayList<ApduServiceInfo> validServices = new ArrayList<ApduServiceInfo>();
+        ArrayList<ApduServiceInfoExt> validServices = new ArrayList<ApduServiceInfoExt>();
 
         List<ResolveInfo> resolvedServices = pm.queryIntentServicesAsUser(
                 new Intent(HostApduService.SERVICE_INTERFACE),
@@ -222,7 +228,7 @@ public class RegisteredServicesCache {
                             android.Manifest.permission.BIND_NFC_SERVICE);
                     continue;
                 }
-                ApduServiceInfo service = new ApduServiceInfo(pm, resolvedService, onHost);
+                ApduServiceInfoExt service = new ApduServiceInfoExt(pm, resolvedService, onHost);
                 if (service != null) {
                     validServices.add(service);
                 }
@@ -237,17 +243,17 @@ public class RegisteredServicesCache {
             UserServices userServices = findOrCreateUserLocked(userId);
 
             // Find removed services
-            Iterator<Map.Entry<ComponentName, ApduServiceInfo>> it =
+            Iterator<Map.Entry<ComponentName, ApduServiceInfoExt>> it =
                     userServices.services.entrySet().iterator();
             while (it.hasNext()) {
-                Map.Entry<ComponentName, ApduServiceInfo> entry =
-                        (Map.Entry<ComponentName, ApduServiceInfo>) it.next();
+                Map.Entry<ComponentName, ApduServiceInfoExt> entry =
+                        (Map.Entry<ComponentName, ApduServiceInfoExt>) it.next();
                 if (!containsServiceLocked(validServices, entry.getKey())) {
                     Log.d(TAG, "Service removed: " + entry.getKey());
                     it.remove();
                 }
             }
-            for (ApduServiceInfo service : validServices) {
+            for (ApduServiceInfoExt service : validServices) {
                 if (DEBUG) Log.d(TAG, "Adding service: " + service.getComponent() +
                         " AIDs: " + service.getAids());
                 userServices.services.put(service.getComponent(), service);
@@ -261,7 +267,7 @@ public class RegisteredServicesCache {
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("Registered HCE services for current user: ");
         UserServices userServices = findOrCreateUserLocked(ActivityManager.getCurrentUser());
-        for (ApduServiceInfo service : userServices.services.values()) {
+        for (ApduServiceInfoExt service : userServices.services.values()) {
             pw.println("    " + service.getComponent() +
                     " (Description: " + service.getDescription() + ")");
         }

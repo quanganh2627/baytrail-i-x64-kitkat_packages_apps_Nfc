@@ -1,3 +1,22 @@
+ /*
+ *  The original Work has been changed by NXP Semiconductors.
+ *
+ *  Copyright(C) 2013-2014 NXP Semiconductors
+ *
+ *  Licensed under the Apache License, Version 2.0(the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+
 package com.android.nfc.cardemulation;
 
 import android.app.ActivityManager;
@@ -17,6 +36,9 @@ import android.util.Log;
 
 import com.google.android.collect.Maps;
 
+import com.nxp.nfc.cardemulation.ApduServiceInfoExt;
+import com.nxp.nfc.cardemulation.ApduServiceInfoExt.ESeInfo;
+
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -31,12 +53,16 @@ import java.util.TreeMap;
 public class RegisteredAidCache implements RegisteredServicesCache.Callback {
     static final String TAG = "RegisteredAidCache";
 
-    static final boolean DBG = false;
+    static final boolean DBG = true;
 
     // mAidServices is a tree that maps an AID to a list of handling services
     // on Android. It is only valid for the current user.
-    final TreeMap<String, ArrayList<ApduServiceInfo>> mAidToServices =
-            new TreeMap<String, ArrayList<ApduServiceInfo>>();
+    final TreeMap<String, ArrayList<ApduServiceInfoExt>> mAidToServices =
+            new TreeMap<String, ArrayList<ApduServiceInfoExt>>();
+    // mAidToOffHostServices is a tree that maps an AID to a list of handling
+    // partial AID match off-host services. It is only valid for the current user.
+    final TreeMap<String, ArrayList<ApduServiceInfoExt>> mAidToOffHostServices =
+            new TreeMap<String, ArrayList<ApduServiceInfoExt>>();
 
     // mAidCache is a lookup table for quickly mapping an AID to one or
     // more services. It differs from mAidServices in the sense that it
@@ -50,8 +76,8 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
             Maps.newHashMap();
 
     final class AidResolveInfo {
-        List<ApduServiceInfo> services;
-        ApduServiceInfo defaultService;
+        List<ApduServiceInfoExt> services;
+        ApduServiceInfoExt defaultService;
         String aid;
     }
 
@@ -71,6 +97,7 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
 
     ComponentName mNextTapComponent = null;
     boolean mNfcEnabled = false;
+    List<ApduServiceInfoExt> mServicesCache;
 
     private final class SettingsObserver extends ContentObserver {
         public SettingsObserver(Handler handler) {
@@ -87,8 +114,11 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
                 int currentUser = ActivityManager.getCurrentUser();
                 boolean changed = updateFromSettingsLocked(currentUser);
                 if (changed) {
+                    mRoutingManager.onNfccRoutingTableCleared();
+                    generateAidTreeLocked(currentUser, mServicesCache);
+                    generateAidCategoriesLocked(mServicesCache);
                     generateAidCacheLocked();
-                    updateRoutingLocked();
+                    updateRoutingLocked(currentUser);
                 } else {
                     if (DBG) Log.d(TAG, "Not updating aid cache + routing: nothing changed.");
                 }
@@ -116,19 +146,26 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
 
     public AidResolveInfo resolveAidPrefix(String aid) {
         synchronized (mLock) {
-            char nextAidChar = (char) (aid.charAt(aid.length() - 1) + 1);
-            String nextAid = aid.substring(0, aid.length() - 1) + nextAidChar;
-            SortedMap<String, ArrayList<ApduServiceInfo>> matches =
-                    mAidToServices.subMap(aid, nextAid);
-            // The first match is lexicographically closest to what the reader asked;
-            if (matches.isEmpty()) {
-                return null;
-            } else {
-                AidResolveInfo resolveInfo = mAidCache.get(matches.firstKey());
+            if (mAidToServices.containsKey(aid)) {
+                AidResolveInfo resolveInfo = mAidCache.get(aid);
                 // Let the caller know which AID got selected
-                resolveInfo.aid = matches.firstKey();
+                resolveInfo.aid = aid;
                 return resolveInfo;
             }
+            return null;
+        }
+    }
+
+    public AidResolveInfo resolveAidPrefixOffHost(String aid) {
+        synchronized (mLock) {
+            if (mAidToOffHostServices.containsKey(aid)) {
+                AidResolveInfo resolveInfo = new AidResolveInfo();
+                resolveInfo.services = mAidToOffHostServices.get(aid);
+                // Let the caller know which AID got selected
+                resolveInfo.aid = aid;
+                return resolveInfo;
+            }
+            return null;
         }
     }
 
@@ -141,6 +178,20 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
                 return CardEmulation.CATEGORY_OTHER;
             }
         }
+    }
+
+    public AidResolveInfo resolveAidPartialMatch(String selectAid) {
+        String nextAid = selectAid.substring(0, selectAid.length() - 1);
+        AidResolveInfo info = null;
+        while (nextAid.length() >= 10) {
+            if (DBG) Log.d(TAG, "nextAid = " + nextAid);
+            info = resolveAidPrefixOffHost(nextAid);
+            if (info != null) {
+                break;
+            }
+            nextAid = nextAid.substring(0, nextAid.length() - 1);
+        }
+        return info;
     }
 
     public boolean isDefaultServiceForAid(int userId, ComponentName service, String aid) {
@@ -250,8 +301,11 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
                 mNextTapComponent = null;
             }
             // Update cache and routing table
+            mRoutingManager.onNfccRoutingTableCleared();
+            generateAidTreeLocked(userId, mServicesCache);
+            generateAidCategoriesLocked(mServicesCache);
             generateAidCacheLocked();
-            updateRoutingLocked();
+            updateRoutingLocked(userId);
         }
         return true;
     }
@@ -259,14 +313,14 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
     /**
      * Resolves an AID to a set of services that can handle it.
      */
-     AidResolveInfo resolveAidLocked(List<ApduServiceInfo> resolvedServices, String aid) {
+     AidResolveInfo resolveAidLocked(List<ApduServiceInfoExt> resolvedServices, String aid) {
         if (resolvedServices == null || resolvedServices.size() == 0) {
             if (DBG) Log.d(TAG, "Could not resolve AID " + aid + " to any service.");
             return null;
         }
         AidResolveInfo resolveInfo = new AidResolveInfo();
         if (DBG) Log.d(TAG, "resolveAidLocked: resolving AID " + aid);
-        resolveInfo.services = new ArrayList<ApduServiceInfo>();
+        resolveInfo.services = new ArrayList<ApduServiceInfoExt>();
         resolveInfo.services.addAll(resolvedServices);
         resolveInfo.defaultService = null;
 
@@ -283,7 +337,7 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
             if (DBG) Log.d(TAG, "resolveAidLocked: default payment component is "
                     + defaultComponent);
             if (resolvedServices.size() == 1) {
-                ApduServiceInfo resolvedService = resolvedServices.get(0);
+                ApduServiceInfoExt resolvedService = resolvedServices.get(0);
                 if (DBG) Log.d(TAG, "resolveAidLocked: resolved single service " +
                         resolvedService.getComponent());
                 if (defaultComponent != null &&
@@ -309,7 +363,7 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
                     for (AidGroup aidGroup : resolvedService.getAidGroups()) {
                         if (aidGroup.getCategory().equals(CardEmulation.CATEGORY_PAYMENT)) {
                             for (String registeredAid : aidGroup.getAids()) {
-                                ArrayList<ApduServiceInfo> servicesForAid =
+                                ArrayList<ApduServiceInfoExt> servicesForAid =
                                         mAidToServices.get(registeredAid);
                                 if (servicesForAid != null && servicesForAid.size() > 1) {
                                     foundConflict = true;
@@ -334,7 +388,7 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
                 // registered this AID, go with the default. Otherwise, add all.
                 if (DBG) Log.d(TAG, "resolveAidLocked: multiple services matched.");
                 if (defaultComponent != null) {
-                    for (ApduServiceInfo service : resolvedServices) {
+                    for (ApduServiceInfoExt service : resolvedServices) {
                         if (service.getComponent().equals(defaultComponent)) {
                             if (DBG) Log.d(TAG, "resolveAidLocked: DECISION: routing to (default) "
                                     + service.getComponent());
@@ -350,7 +404,7 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
         } else {
             // This AID is not a payment AID, just return all components
             // that can handle it, but be mindful of (next tap) defaults.
-            for (ApduServiceInfo service : resolvedServices) {
+            for (ApduServiceInfoExt service : resolvedServices) {
                 if (service.getComponent().equals(defaultComponent)) {
                     if (DBG) Log.d(TAG, "resolveAidLocked: DECISION: cat OTHER AID, " +
                             "routing to (default) " + service.getComponent());
@@ -361,44 +415,104 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
             if (resolveInfo.defaultService == null) {
                 // If we didn't find the default, mark the first as default
                 // if there is only one.
-                if (resolveInfo.services.size() == 1) {
+                if (resolveInfo.services.size() == 1 &&
+                        (!mAidToOffHostServices.containsKey(aid) || mAidToOffHostServices.get(aid).size() == 1)) {
                     resolveInfo.defaultService = resolveInfo.services.get(0);
-                    if (DBG) Log.d(TAG, "resolveAidLocked: DECISION: cat OTHER AID, " +
-                            "routing to (default) " + resolveInfo.defaultService.getComponent());
+                    if (DBG)
+                        Log.d(TAG,
+                                "resolveAidLocked: DECISION: cat OTHER AID, "
+                                        + "routing to(default) "
+                                        + resolveInfo.defaultService
+                                        .getComponent());
                 } else {
-                    if (DBG) Log.d(TAG, "resolveAidLocked: DECISION: cat OTHER AID, routing all");
+                    if (DBG)
+                        Log.d(TAG,
+                                "resolveAidLocked: DECISION: cat OTHER AID, routing all");
                 }
             }
         }
         return resolveInfo;
-    }
+     }
 
-    void generateAidTreeLocked(List<ApduServiceInfo> services) {
-        // Easiest is to just build the entire tree again
-        mAidToServices.clear();
-        for (ApduServiceInfo service : services) {
-            if (DBG) Log.d(TAG, "generateAidTree component: " + service.getComponent());
-            for (String aid : service.getAids()) {
-                if (DBG) Log.d(TAG, "generateAidTree AID: " + aid);
-                // Check if a mapping exists for this AID
-                if (mAidToServices.containsKey(aid)) {
-                    final ArrayList<ApduServiceInfo> aidServices = mAidToServices.get(aid);
-                    aidServices.add(service);
-                } else {
-                    final ArrayList<ApduServiceInfo> aidServices =
-                            new ArrayList<ApduServiceInfo>();
-                    aidServices.add(service);
-                    mAidToServices.put(aid, aidServices);
-                }
-            }
-        }
-    }
+     void generateAidTreeLocked(int userId, List<ApduServiceInfoExt> services) {
+         // Easiest is to just build the entire tree again
+         mAidToServices.clear();
+         mAidToOffHostServices.clear();
+         // Get default payment service
+         ComponentName defaultPaymentComponent =
+                 getDefaultServiceForCategory(userId, CardEmulation.CATEGORY_PAYMENT, false);
+         for (ApduServiceInfoExt service : services) {
+             if (DBG) Log.d(TAG, "generateAidTree component: " + service.getComponent());
+             // Go through aid groups
+             for (AidGroup group : service.getAidGroups()) {
+                 // Igore aids in none default payment services
+                 if (defaultPaymentComponent != null &&
+                         CardEmulation.CATEGORY_PAYMENT.equals(group.getCategory()) &&
+                         !defaultPaymentComponent.equals(service.getComponent())) {
+                     if (DBG) Log.d(TAG, "ignore all AIDs in none default payment group, !");
+                     continue;
+                 }
+                 for (String aid : group.getAids()) {
+                     if (DBG) Log.d(TAG, "generateAidTree AID: " + aid);
+                     // Check if a mapping exists for this AID
+                    if (!service.isOnHost() && mRoutingManager.GetVzwCache().isAidPresent(aid)) {
+                        if (mRoutingManager.GetVzwCache().IsAidAllowed(aid)) {
+                            Log.d(TAG, "vzw AID: " + aid);
+                        } else {
+                            Log.d(TAG, "non vzw AID: " + aid);
+                            continue;
+                        }
+                    }
+                     if (mAidToServices.containsKey(aid)) {
+                         final ArrayList<ApduServiceInfoExt> aidServices = mAidToServices.get(aid);
+                         aidServices.add(service);
+                     } else {
+                         final ArrayList<ApduServiceInfoExt> aidServices = new ArrayList<ApduServiceInfoExt>();
+                         aidServices.add(service);
+                         mAidToServices.put(aid, aidServices);
+                     }
+                     if (DBG) Log.d(TAG, "initialize partial match tree component: " + service.getComponent());
+                     if (!service.isOnHost()) {
+                         if (mAidToOffHostServices.containsKey(aid)) {
+                             final ArrayList<ApduServiceInfoExt> aidServices = mAidToOffHostServices.get(aid);
+                             aidServices.add(service);
+                         } else {
+                             final ArrayList<ApduServiceInfoExt> aidServices = new ArrayList<ApduServiceInfoExt>();
+                             aidServices.add(service);
+                             mAidToOffHostServices.put(aid, aidServices);
+                         }
+                     }
+                 }
+             }
+         }
 
-    void generateAidCategoriesLocked(List<ApduServiceInfo> services) {
+         for (ApduServiceInfoExt service : services) {
+             if (DBG) Log.d(TAG, "generate partial match tree component: " + service.getComponent());
+             if (service.isOnHost())
+                 continue;
+
+             for (String aid : service.getAids()) {
+                 if (!mAidToOffHostServices.containsKey(aid))
+                     continue;
+                 for (Map.Entry<String, ArrayList<ApduServiceInfoExt>> aidEntry : mAidToOffHostServices.entrySet()) {
+                     String selectAid = aidEntry.getKey();
+                     if (selectAid.startsWith(aid) || aid.startsWith(selectAid)) {
+                         if (DBG) Log.d(TAG, "add AID: " + aid + " to service from AID: " + selectAid);
+                         final ArrayList<ApduServiceInfoExt> aidServices = mAidToOffHostServices.get(selectAid);
+                         if (!aidServices.contains(service)) {
+                             aidServices.add(service);
+                         }
+                     }
+                 }
+             }
+         }
+     }
+
+    void generateAidCategoriesLocked(List<ApduServiceInfoExt> services) {
         // Trash existing mapping
         mCategoryAids.clear();
 
-        for (ApduServiceInfo service : services) {
+        for (ApduServiceInfoExt service : services) {
             ArrayList<AidGroup> aidGroups = service.getAidGroups();
             if (aidGroups == null) continue;
             for (AidGroup aidGroup : aidGroups) {
@@ -428,7 +542,7 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
 
     void generateAidCacheLocked() {
         mAidCache.clear();
-        for (Map.Entry<String, ArrayList<ApduServiceInfo>> aidEntry:
+        for (Map.Entry<String, ArrayList<ApduServiceInfoExt>> aidEntry:
                     mAidToServices.entrySet()) {
             String aid = aidEntry.getKey();
             if (!mAidCache.containsKey(aid)) {
@@ -437,12 +551,15 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
         }
     }
 
-    void updateRoutingLocked() {
+    void updateRoutingLocked(int userId) {
         if (!mNfcEnabled) {
             if (DBG) Log.d(TAG, "Not updating routing table because NFC is off.");
             return;
         }
         final Set<String> handledAids = new HashSet<String>();
+        // Get default payment service
+        ComponentName defaultPaymentComponent =
+                getDefaultServiceForCategory(userId, CardEmulation.CATEGORY_PAYMENT, false);
         // For each AID, find interested services
         for (Map.Entry<String, AidResolveInfo> aidEntry:
                 mAidCache.entrySet()) {
@@ -453,14 +570,58 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
                 mRoutingManager.removeAid(aid);
             } else if (resolveInfo.defaultService != null) {
                 // There is a default service set, route to that service
-                mRoutingManager.setRouteForAid(aid, resolveInfo.defaultService.isOnHost());
+                ESeInfo seInfo = resolveInfo.defaultService.getSEInfo();
+                boolean isDefaultPayment = false;
+                int VzwPowerstate =0 ;
+
+                /*get power state from the app : - N|L |F */
+                int powerstate = (seInfo.getPowerState()& 0x07);
+                if (CardEmulation.CATEGORY_PAYMENT.equals(getCategoryForAid(aid))) {
+                    if (mNextTapComponent != null) {
+                        isDefaultPayment = mNextTapComponent.equals(resolveInfo.defaultService.getComponent());
+                    } else if (defaultPaymentComponent != null) {
+                        isDefaultPayment = defaultPaymentComponent.equals(resolveInfo.defaultService.getComponent());
+                    }
+                }
+
+                /*If non default off host payment AID , set screen state*/
+                if (!isDefaultPayment && !resolveInfo.defaultService.isOnHost()) {
+                   Log.d(TAG, " set screen off enable for " + aid);
+                   powerstate |= (powerstate | 0x80);
+                }
+
+                if (!resolveInfo.defaultService.isOnHost()) {
+                   if (mRoutingManager.GetVzwCache().isAidPresent(aid)) {
+                      if (mRoutingManager.GetVzwCache().IsAidAllowed(aid)) {
+
+                         /*if vzw AID reset the previous screen state   */
+                         powerstate &= ~0x80;
+
+                         /*get the vzw power and screen state  :- SCREEN | L |F */
+                         VzwPowerstate = mRoutingManager.GetVzwCache().getPowerState(aid);
+
+                         /*merge power state with vzw power state */
+                         powerstate &= VzwPowerstate;
+
+                         /*merge the power state with vzw screen state*/
+                         powerstate |= (VzwPowerstate & 0x80);
+                         Log.d(TAG, " vzw aid" + aid);
+                         Log.d(TAG, " vzw merged power state" + powerstate);
+                      }
+                   }
+                }
+                mRoutingManager.setRouteForAid(aid,
+                                               resolveInfo.defaultService.isOnHost(),
+                                               seInfo.getSeId(),
+                                               powerstate,
+                                               isDefaultPayment);
             } else if (resolveInfo.services.size() == 1) {
                 // Only one service, but not the default, must route to host
                 // to ask the user to confirm.
-                mRoutingManager.setRouteForAid(aid, true);
+                mRoutingManager.setRouteForAid(aid, true, 0, 0, false);
             } else if (resolveInfo.services.size() > 1) {
                 // Multiple services, need to route to host to ask
-                mRoutingManager.setRouteForAid(aid, true);
+                mRoutingManager.setRouteForAid(aid, true, 0, 0, false);
             }
             handledAids.add(aid);
         }
@@ -484,10 +645,10 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
         mContext.startActivityAsUser(intent, UserHandle.CURRENT);
     }
 
-    void onPaymentDefaultRemoved(int userId, List<ApduServiceInfo> services) {
+    void onPaymentDefaultRemoved(int userId, List<ApduServiceInfoExt> services) {
         int numPaymentServices = 0;
         ComponentName lastFoundPaymentService = null;
-        for (ApduServiceInfo service : services) {
+        for (ApduServiceInfoExt service : services) {
             if (service.hasCategory(CardEmulation.CATEGORY_PAYMENT))  {
                 numPaymentServices++;
                 lastFoundPaymentService = service.getComponent();
@@ -515,10 +676,10 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
         }
     }
 
-    void setDefaultIfNeededLocked(int userId, List<ApduServiceInfo> services) {
+    void setDefaultIfNeededLocked(int userId, List<ApduServiceInfoExt> services) {
         int numPaymentServices = 0;
         ComponentName lastFoundPaymentService = null;
-        for (ApduServiceInfo service : services) {
+        for (ApduServiceInfoExt service : services) {
             if (service.hasCategory(CardEmulation.CATEGORY_PAYMENT))  {
                 numPaymentServices++;
                 lastFoundPaymentService = service.getComponent();
@@ -538,13 +699,13 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
         }
     }
 
-    void checkDefaultsLocked(int userId, List<ApduServiceInfo> services) {
+    void checkDefaultsLocked(int userId, List<ApduServiceInfoExt> services) {
         ComponentName defaultPaymentService =
                 getDefaultServiceForCategory(userId, CardEmulation.CATEGORY_PAYMENT, false);
         if (DBG) Log.d(TAG, "Current default: " + defaultPaymentService);
         if (defaultPaymentService != null) {
             // Validate the default is still installed and handling payment
-            ApduServiceInfo serviceInfo = mServiceCache.getService(userId, defaultPaymentService);
+            ApduServiceInfoExt serviceInfo = mServiceCache.getService(userId, defaultPaymentService);
             if (serviceInfo == null) {
                 Log.e(TAG, "Default payment service unexpectedly removed.");
                 onPaymentDefaultRemoved(userId, services);
@@ -564,21 +725,29 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
     }
 
     @Override
-    public void onServicesUpdated(int userId, List<ApduServiceInfo> services) {
+    public void onServicesUpdated(int userId, List<ApduServiceInfoExt> services) {
         synchronized (mLock) {
             if (ActivityManager.getCurrentUser() == userId) {
+                mServicesCache = services;
                 // Rebuild our internal data-structures
                 checkDefaultsLocked(userId, services);
-                generateAidTreeLocked(services);
+                generateAidTreeLocked(userId, services);
                 generateAidCategoriesLocked(services);
                 generateAidCacheLocked();
-                updateRoutingLocked();
+                updateRoutingLocked(userId);
             } else {
                 if (DBG) Log.d(TAG, "Ignoring update because it's not for the current user.");
             }
         }
     }
 
+    public void onAidFilterUpdated() {
+        int userID = ActivityManager.getCurrentUser();
+        generateAidTreeLocked(userID, mServicesCache);
+        generateAidCategoriesLocked(mServicesCache);
+        generateAidCacheLocked();
+        updateRoutingLocked(userID);
+    }
     public void invalidateCache(int currentUser) {
         mServiceCache.invalidateCache(currentUser);
     }
@@ -602,11 +771,11 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
     String dumpEntry(Map.Entry<String, AidResolveInfo> entry) {
         StringBuilder sb = new StringBuilder();
         sb.append("    \"" + entry.getKey() + "\"\n");
-        ApduServiceInfo defaultService = entry.getValue().defaultService;
+        ApduServiceInfoExt defaultService = entry.getValue().defaultService;
         ComponentName defaultComponent = defaultService != null ?
                 defaultService.getComponent() : null;
 
-        for (ApduServiceInfo service : entry.getValue().services) {
+        for (ApduServiceInfoExt service : entry.getValue().services) {
             sb.append("        ");
             if (service.getComponent().equals(defaultComponent)) {
                 sb.append("*DEFAULT* ");

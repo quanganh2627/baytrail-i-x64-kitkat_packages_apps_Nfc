@@ -17,7 +17,7 @@
  *
  *  The original Work has been changed by NXP Semiconductors.
  *
- *  Copyright (C) 2013 NXP Semiconductors
+ *  Copyright(C) 2013-2014 NXP Semiconductors
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -101,6 +101,17 @@ namespace android
 #define NDEF_TYPE4_TAG             4
 #define NDEF_MIFARE_CLASSIC_TAG    101
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+/*Below #defines are made to make libnfc-nci as AOSP*/
+#ifndef NCI_INTERFACE_MIFARE
+#define NCI_INTERFACE_MIFARE       0x80
+#endif
+#undef  NCI_PROTOCOL_MIFARE
+#define NCI_PROTOCOL_MIFARE        0x80
+
+static uint8_t Presence_check_TypeB[] =  {0xB2};
+#endif
+
 #define STATUS_CODE_TARGET_LOST    146	// this error code comes from the service
 
 static uint32_t     sCheckNdefCurrentSize = 0;
@@ -126,6 +137,9 @@ static sem_t        sCheckNdefSem;
 static sem_t        sPresenceCheckSem;
 static sem_t        sMakeReadonlySem;
 static IntervalTimer sSwitchBackTimer; // timer used to tell us to switch back to ISO_DEP frame interface
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+static IntervalTimer sPresenceCheckTimer; // timer used for presence cmd notification timeout.
+#endif
 static jboolean     sWriteOk = JNI_FALSE;
 static jboolean     sWriteWaitingForComplete = JNI_FALSE;
 static bool         sFormatOk = false;
@@ -139,17 +153,19 @@ static bool         sIsTagPresent = true;
 static tNFA_STATUS  sMakeReadonlyStatus = NFA_STATUS_FAILED;
 static jboolean     sMakeReadonlyWaitingForComplete = JNI_FALSE;
 static int          sCurrentConnectedTargetType = TARGET_TYPE_UNKNOWN;
-
-static int reSelect (tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded);
-static bool switchRfInterface(tNFA_INTF_TYPE rfInterface);
-
 #if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
-static IntervalTimer sPresenceCheckTimer; // timer used for presence cmd notification timeout.
-static int          doReconnectFlag = 0x00;
 static SyncEvent    sNfaVSCResponseEvent;
 static SyncEvent    sNfaVSCNotificationEvent;
 static bool         sIsTagInField;
 static bool         sVSCRsp;
+static bool         sReconnectFlag = false;
+static bool         cashbeedetected = false;
+#endif
+static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded);
+static bool switchRfInterface(tNFA_INTF_TYPE rfInterface);
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+static int           doReconnectFlag = 0x00;
 
 static void nfaVSCCallback(UINT8 event, UINT16 param_len, UINT8 *p_param);
 static void nfaVSCNtfCallback(UINT8 event, UINT16 param_len, UINT8 *p_param);
@@ -654,13 +670,19 @@ static jint nativeNfcTag_doConnect (JNIEnv*, jobject, jint targetHandle)
     }
 
     sCurrentConnectedTargetType = natTag.mTechList[i];
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    if (natTag.mTechLibNfcTypes[i] == NFC_PROTOCOL_T3BT)
+    {
+        goto TheEnd;
+    }
+#endif
     if (natTag.mTechLibNfcTypes[i] != NFC_PROTOCOL_ISO_DEP)
     {
         ALOGD ("%s() Nfc type = %d, do nothing for non ISO_DEP", __FUNCTION__, natTag.mTechLibNfcTypes[i]);
         retCode = NFCSTATUS_SUCCESS;
         goto TheEnd;
     }
-#if(NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
+    /* Switching is required for CTS protocol paramter test case.*/
     if (natTag.mTechList[i] == TARGET_TYPE_ISO14443_3A || natTag.mTechList[i] == TARGET_TYPE_ISO14443_3B)
     {
         ALOGD ("%s: switching to tech: %d need to switch rf intf to frame", __FUNCTION__, natTag.mTechList[i]);
@@ -672,12 +694,23 @@ static jint nativeNfcTag_doConnect (JNIEnv*, jobject, jint targetHandle)
         // connecting back to IsoDep or NDEF
         return (switchRfInterface (NFA_INTERFACE_ISO_DEP) ? NFCSTATUS_SUCCESS : NFCSTATUS_FAILED);
     }
-#endif
+
 TheEnd:
     ALOGD ("%s: exit 0x%X", __FUNCTION__, retCode);
     return retCode;
 }
-
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+void setReconnectState(bool flag)
+{
+    sReconnectFlag = flag;
+    ALOGE("setReconnectState = 0x%x", sReconnectFlag);
+}
+bool getReconnectState(void)
+{
+    return sReconnectFlag;
+    ALOGE("getReconnectState = 0x%x", sReconnectFlag);
+}
+#endif
 /*******************************************************************************
 **
 ** Function:        reSelect
@@ -721,46 +754,98 @@ static int reSelect (tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded)
             SyncEventGuard g (sReconnectEvent);
             gIsTagDeactivating = true;
             sGotDeactivate = false;
-            ALOGD ("%s: deactivate to sleep", __FUNCTION__);
-            if (NFA_STATUS_OK != (status = NFA_Deactivate (TRUE))) //deactivate to sleep state
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            setReconnectState(false);
+            NFA_SetReconnectState(TRUE);
+            if (cashbeedetected == true)
             {
-                ALOGE ("%s: deactivate failed, status = %d", __FUNCTION__, status);
-                break;
+                setReconnectState(true);
+                /* send deactivate to Idle command */
+                ALOGD("%s: deactivate to Idle", __FUNCTION__);
+                if (NFA_STATUS_OK != (status = NFA_StopRfDiscovery())) //deactivate to sleep state
+                {
+                    ALOGE("%s: deactivate failed, status = %d", __FUNCTION__, status);
+                    break;
+                }
             }
-
+            else
+            {
+#endif
+                ALOGD("%s: deactivate to sleep", __FUNCTION__);
+                if (NFA_STATUS_OK != (status = NFA_Deactivate(TRUE))) //deactivate to sleep state
+                {
+                    ALOGE("%s: deactivate failed, status = %d", __FUNCTION__, status);
+                    break;
+                }
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            }
+#endif
             if (sReconnectEvent.wait (1000) == false) //if timeout occurred
             {
                 ALOGE ("%s: timeout waiting for deactivate", __FUNCTION__);
             }
         }
-
+#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
         if (!sGotDeactivate)
         {
             rVal = STATUS_CODE_TARGET_LOST;
             break;
         }
-
-        if (NfcTag::getInstance ().getActivationState () != NfcTag::Sleep)
+#endif
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+        if (NfcTag::getInstance().getActivationState() == NfcTag::Idle)
         {
-            ALOGD ("%s: tag is not in sleep", __FUNCTION__);
-            rVal = STATUS_CODE_TARGET_LOST;
-            break;
+            ALOGD("%s:tag is in idle");
+            cashbeedetected = true;
         }
 
+        if (cashbeedetected == false)
+        {
+#endif
+            if (NfcTag::getInstance().getActivationState() != NfcTag::Sleep)
+            {
+                ALOGD("%s: tag is not in sleep", __FUNCTION__);
+                rVal = STATUS_CODE_TARGET_LOST;
+                break;
+            }
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+        }
+        else
+        {
+            setReconnectState(false);
+        }
+#endif
         gIsTagDeactivating = false;
 
         {
             SyncEventGuard g2 (sReconnectEvent);
-
-            sConnectWaitingForComplete = JNI_TRUE;
-            ALOGD ("%s: select interface %u", __FUNCTION__, rfInterface);
             gIsSelectingRfInterface = true;
-            if (NFA_STATUS_OK != (status = NFA_Select (natTag.mTechHandles[0], natTag.mTechLibNfcTypes[0], rfInterface)))
-            {
-                ALOGE ("%s: NFA_Select failed, status = %d", __FUNCTION__, status);
-                break;
-            }
+            sConnectWaitingForComplete = JNI_TRUE;
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            if (cashbeedetected == true)
+            {
+                setReconnectState(true);
+                ALOGD("%s: Discover map cmd", __FUNCTION__);
+                if (NFA_STATUS_OK != (status = NFA_StartRfDiscovery())) //deactivate to sleep state
+                {
+                    ALOGE("%s: deactivate failed, status = %d", __FUNCTION__, status);
+                    break;
+                }
+            }
+            else
+            {
+#endif
+                ALOGD("%s: select interface %u", __FUNCTION__, rfInterface);
+
+                if (NFA_STATUS_OK != (status = NFA_Select(natTag.mTechHandles[0], natTag.mTechLibNfcTypes[0], rfInterface)))
+                {
+                    ALOGE("%s: NFA_Select failed, status = %d", __FUNCTION__, status);
+                    break;
+                }
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            }
+#endif
             sConnectOk = false;
             if (sReconnectEvent.wait (1000) == false) //if timeout occured
             {
@@ -776,6 +861,12 @@ static int reSelect (tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded)
             rVal = STATUS_CODE_TARGET_LOST;
             break;
         }
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+        if (cashbeedetected == true)
+        {
+            natTag.mTechLibNfcTypes[0] = NFA_PROTOCOL_ISO_DEP;
+        }
+#endif
         if (sConnectOk)
         {
             rVal = 0;   // success
@@ -787,6 +878,10 @@ static int reSelect (tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded)
         }
     } while (0);
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    setReconnectState(false);
+    NFA_SetReconnectState(FALSE);
+#endif
     sConnectWaitingForComplete = JNI_FALSE;
     gIsTagDeactivating = false;
     gIsSelectingRfInterface = false;
@@ -912,7 +1007,21 @@ static jint nativeNfcTag_doReconnect (JNIEnv*, jobject)
 
             if (false == sIsTagInField)
             {
+                ALOGD("%s: NxpNci: TAG OUT OF FIELD", __FUNCTION__);
                 retCode = STATUS_CODE_TARGET_LOST;
+
+                SyncEventGuard g(gDeactivatedEvent);
+
+                //Tag not present, deactivate the TAG.
+                stat = NFA_Deactivate(FALSE);
+                if (stat == NFA_STATUS_OK)
+                {
+                    gDeactivatedEvent.wait();
+                }
+                else
+                {
+                    ALOGE("%s: deactivate failed; error=0x%X", __FUNCTION__, stat);
+                }
             }
             else
             {
@@ -1409,6 +1518,17 @@ static jint nativeNfcTag_doCheckNdef (JNIEnv* e, jobject, jintArray ndefInfo)
 
     ALOGD ("%s: enter", __FUNCTION__);
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    if (NfcTag::getInstance().mTechLibNfcTypes[0] == NFA_PROTOCOL_T3BT)
+    {
+        ndef = e->GetIntArrayElements(ndefInfo, 0);
+        ndef[0] = 0;
+        ndef[1] = NDEF_MODE_READ_ONLY;
+        e->ReleaseIntArrayElements(ndefInfo, ndef, 0);
+        return NFA_STATUS_FAILED;
+    }
+#endif
+
     // special case for Kovio
     if (NfcTag::getInstance ().mTechList [0] == TARGET_TYPE_KOVIO_BARCODE)
     {
@@ -1548,6 +1668,9 @@ TheEnd:
 void nativeNfcTag_resetPresenceCheck ()
 {
     sIsTagPresent = true;
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    cashbeedetected = false;
+#endif
 }
 
 
@@ -1691,6 +1814,39 @@ static jboolean nativeNfcTag_doPresenceCheck (JNIEnv*, jobject)
         ALOGE ("%s: semaphore creation failed (errno=0x%08x)", __FUNCTION__, errno);
         return JNI_FALSE;
     }
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    if (NfcTag::getInstance().mTechLibNfcTypes[0] == NFA_PROTOCOL_T3BT)
+    {
+        UINT8 *pbuf = NULL;
+        UINT8 bufLen = 0x00;
+        bool waitOk = false;
+
+        SyncEventGuard g(sTransceiveEvent);
+        sTransceiveRfTimeout = false;
+        sWaitingForTransceive = true;
+        sTransceiveDataLen = 0;
+        bufLen = (UINT8) sizeof(Presence_check_TypeB);
+        pbuf = Presence_check_TypeB;
+        //memcpy(pbuf, Attrib_cmd_TypeB, bufLen);
+        status = NFA_SendRawFrame(pbuf, bufLen, NFA_DM_DEFAULT_PRESENCE_CHECK_START_DELAY);
+        if (status != NFA_STATUS_OK)
+        {
+            ALOGE("%s: fail send; error=%d", __FUNCTION__, status);
+        }
+        else
+            waitOk = sTransceiveEvent.wait(gGeneralTransceiveTimeout);
+
+        if (waitOk == false || sTransceiveRfTimeout) //if timeout occurred
+        {
+            return JNI_FALSE;;
+        }
+        else
+        {
+            return JNI_TRUE;
+        }
+    }
+#endif
 
     status = NFA_RwPresenceCheck ();
     if (status == NFA_STATUS_OK)

@@ -26,6 +26,11 @@
 #include "RoutingManager.h"
 
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+extern "C"
+{
+    #include "phNxpConfig.h"
+}
+
 namespace android
 {
 extern  void  checkforTranscation(UINT8 connEvent, void* eventData );
@@ -36,6 +41,7 @@ void *reader_event_handler_async(void *data);
 #endif
 
 RoutingManager::RoutingManager ()
+:   mNativeData(NULL)
 {
 }
 
@@ -51,9 +57,16 @@ bool RoutingManager::initialize (nfc_jni_native_data* native)
     mNativeData = native;
 
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
-    if ((GetNumValue(NAME_UICC_LISTEN_TECH_MASK, &num, sizeof(num))))
+     mIsDirty = false;
+
+    if (GetNxpNumValue(NAME_NXP_DEFAULT_SE, (void*)&num, sizeof(num)))
     {
-        ALOGE ("%s:UICC_LISTEN_MASK=0x0%d;", __FUNCTION__, num);
+        ALOGD("%d: nfcManager_GetDefaultSE", num);
+        mDefaultEe = num;
+    }
+    else
+    {
+        mDefaultEe = 0;
     }
 #endif
 
@@ -71,18 +84,14 @@ bool RoutingManager::initialize (nfc_jni_native_data* native)
     }
 
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
-    if (num != 0x00)
-    {
+    // Tell the host-routing to only listen on Nfc-A/Nfc-B
+    nfaStat = NFA_CeSetIsoDepListenTech(NFA_TECHNOLOGY_MASK_A | NFA_TECHNOLOGY_MASK_B);
+    if (nfaStat != NFA_STATUS_OK)
+        ALOGE("Failed to configure CE IsoDep technologies");
         // Register a wild-card for AIDs routed to the host
         nfaStat = NFA_CeRegisterAidOnDH (NULL, 0, stackCallback);
         if (nfaStat != NFA_STATUS_OK)
             ALOGE("Failed to register wildcard AID for DH");
-        // Tell the host-routing to only listen on Nfc-A/Nfc-B
-        nfaStat = NFA_CeSetIsoDepListenTech(num & 0x03);
-        if (nfaStat != NFA_STATUS_OK)
-            ALOGE ("Failed to configure CE IsoDep technologies");
-        setRouting(true);
-    }
 #else
     // Get the "default" route
     if (GetNumValue("DEFAULT_ISODEP_ROUTE", &num, sizeof(num)))
@@ -147,154 +156,75 @@ void RoutingManager::cleanRouting()
     nfaStat = NFA_EeUpdateNow();
     if (nfaStat != NFA_STATUS_OK)
         ALOGE("Failed to commit routing configuration");
-}
 
+}
+#endif
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
 void RoutingManager::setRouting(bool isHCEEnabled)
 {
     tNFA_STATUS nfaStat;
-    tNFA_HANDLE defaultHandle = NFA_HANDLE_INVALID;
-    tNFA_HANDLE ee_handleList[SecureElement::MAX_NUM_EE];
+    tNFA_HANDLE ee_handle = NFA_EE_HANDLE_DH;
     UINT8 i, count;
     static const char fn [] = "SecureElement::setRouting";
     unsigned long num = 0;
 
-    if ((GetNumValue(NAME_UICC_LISTEN_TECH_MASK, &num, sizeof(num))))
+    if (!mIsDirty)
     {
-        ALOGE ("%s:UICC_LISTEN_MASK=0x0%d;", __FUNCTION__, num);
+        return;
     }
-
+    mIsDirty = false;
     SyncEventGuard guard (mRoutingEvent);
-
-    if (isHCEEnabled)
+    ALOGE("Inside %s mDefaultEe %d isHCEEnabled %d ee_handle :0x%x", fn, mDefaultEe, isHCEEnabled, ee_handle);
+    if (mDefaultEe == 0x01) //eSE
     {
-        defaultHandle = NFA_EE_HANDLE_DH;
+        ee_handle = 0x4C0;
+        num = NFA_TECHNOLOGY_MASK_A;
+        ALOGD("%s:ESE_LISTEN_MASK=0x0%d;", __FUNCTION__, num);
     }
-    else
+    else if (mDefaultEe == 0x02) //UICC
     {
-        SecureElement::getInstance().getEeHandleList(ee_handleList, &count);
-        for ( i = 0; i < count; i++)
+        ee_handle = 0x402;
+        if ((GetNumValue(NAME_UICC_LISTEN_TECH_MASK, &num, sizeof(num))))
         {
-            if (defaultHandle == NFA_HANDLE_INVALID)
-            {
-                defaultHandle = ee_handleList[i];
-                break;
+            ALOGD("%s:UICC_LISTEN_MASK=0x0%d;", __FUNCTION__, num);
             }
-            ALOGD ("%s: defaultHandle %u = 0x%X", fn, i, defaultHandle);
-        }
-    }
-
-    if (defaultHandle != NFA_HANDLE_INVALID)
-    {
-        {
-            tNFA_STATUS status =  NFA_EeSetDefaultTechRouting(0x402,0,0,0); //UICC clear
-            if (status == NFA_STATUS_OK)
-            {
-                mRoutingEvent.wait ();
-            }
-        }
-
-        {
-            tNFA_STATUS status =  NFA_EeSetDefaultProtoRouting(0x402,0,0,0); //UICC clear
-            if (status == NFA_STATUS_OK)
-            {
-                mRoutingEvent.wait ();
-            }
-        }
-
-        {
-            tNFA_STATUS status =  NFA_EeSetDefaultTechRouting(0x4C0,0,0,0); //SMX clear
-            if (status == NFA_STATUS_OK)
-            {
-                mRoutingEvent.wait ();
-            }
-        }
-
-        {
-            tNFA_STATUS status =  NFA_EeSetDefaultProtoRouting(0x4C0,0,0,0); //SMX clear
-            if (status == NFA_STATUS_OK)
-            {
-                mRoutingEvent.wait ();
-            }
-        }
-
-        {
-            tNFA_STATUS status =  NFA_EeSetDefaultTechRouting(0x400,0,0,0); //HOST clear
-            if (status == NFA_STATUS_OK)
-            {
-                mRoutingEvent.wait ();
-            }
-        }
-
-        {
-            tNFA_STATUS status =  NFA_EeSetDefaultProtoRouting(0x400,0,0,0); //HOST clear
-            if (status == NFA_STATUS_OK)
-            {
-                mRoutingEvent.wait ();
-            }
-        }
-        if (defaultHandle == NFA_EE_HANDLE_DH)
-        {
-            // Default routing for NFC-A technology
-            nfaStat = NFA_EeSetDefaultTechRouting (defaultHandle, 0x01, 0, 0);
-            if (nfaStat == NFA_STATUS_OK)
-                mRoutingEvent.wait ();
-            else
-                ALOGE ("Fail to set default tech routing");
-        }
-        else
-        {
-            // Default routing for NFC-A technology
-            nfaStat = NFA_EeSetDefaultTechRouting (defaultHandle, num, num, num);
-            if (nfaStat == NFA_STATUS_OK)
-                mRoutingEvent.wait ();
-            else
-                ALOGE ("Fail to set default tech routing");
-        }
-
-        if (defaultHandle == NFA_EE_HANDLE_DH)
-        {
-            // Default routing for IsoDep protocol
-            nfaStat = NFA_EeSetDefaultProtoRouting(defaultHandle, NFA_PROTOCOL_MASK_ISO_DEP, 0, 0);
-            if (nfaStat == NFA_STATUS_OK)
-                mRoutingEvent.wait ();
-            else
-                ALOGE ("Fail to set default proto routing");
-        }
-        else
-        {
-            // Default routing for IsoDep protocol
-            nfaStat = NFA_EeSetDefaultProtoRouting(defaultHandle, NFA_PROTOCOL_MASK_ISO_DEP, NFA_PROTOCOL_MASK_ISO_DEP, NFA_PROTOCOL_MASK_ISO_DEP);
-            if (nfaStat == NFA_STATUS_OK)
-                mRoutingEvent.wait ();
-            else
-                ALOGE ("Fail to set default proto routing");
-        }
-
-        if (defaultHandle != NFA_EE_HANDLE_DH)
-        {
-            {
+/*
                 SyncEventGuard guard (SecureElement::getInstance().mUiccListenEvent);
-                nfaStat = NFA_CeConfigureUiccListenTech (defaultHandle, 0x00);
+        nfaStat = NFA_CeConfigureUiccListenTech(ee_handle, (num & 0x07));
                 if (nfaStat == NFA_STATUS_OK)
                 {
                     SecureElement::getInstance().mUiccListenEvent.wait ();
                 }
                 else
                     ALOGE ("fail to start UICC listen");
+*/
             }
 
-            {
-                SyncEventGuard guard (SecureElement::getInstance().mUiccListenEvent);
-                nfaStat = NFA_CeConfigureUiccListenTech (defaultHandle, (num & 0x07));
-                if (nfaStat == NFA_STATUS_OK)
-                {
-                    SecureElement::getInstance().mUiccListenEvent.wait ();
-                }
-                else
-                    ALOGE ("fail to start UICC listen");
-            }
+    {
+        // Default routing for IsoDep protocol
+        nfaStat = NFA_EeSetDefaultProtoRouting(NFA_EE_HANDLE_DH, NFA_PROTOCOL_MASK_ISO_DEP, 0, 0);
+        if (nfaStat == NFA_STATUS_OK)
+            mRoutingEvent.wait();
+        else
+        {
+            ALOGE("Fail to set default proto routing");
         }
 
+        nfaStat =  NFA_EeSetDefaultTechRouting(ee_handle, num & 0x07, num & 0x07, num & 0x07);
+        if (nfaStat == NFA_STATUS_OK)
+        {
+            mRoutingEvent.wait();
+        }
+
+        SyncEventGuard guard(SecureElement::getInstance().mUiccListenEvent);
+        nfaStat = NFA_CeConfigureUiccListenTech(ee_handle, (num & 0x07));
+        if (nfaStat == NFA_STATUS_OK)
+        {
+            SecureElement::getInstance().mUiccListenEvent.wait();
+        }
+        else
+            ALOGE("fail to start UICC listen");
     }
 
     // Commit the routing configuration
@@ -353,17 +283,34 @@ bool RoutingManager::addAidRouting(const UINT8* aid, UINT8 aidLen, int route)
     ALOGD ("%s: enter", fn);
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     tNFA_HANDLE handle;
-    ALOGD ("%s: enter, route:%x", fn, route);
-    handle = SecureElement::getInstance().getEseHandleFromGenericId(route);
+    tNFA_HANDLE current_handle;
+    ALOGD("%s: enter, route:%x power:0x%x", fn, route, power);
+    if (route == 0)
+    {
+        handle = NFA_EE_HANDLE_DH;
+    }
+    else
+    {
+        handle = SecureElement::getInstance().getEseHandleFromGenericId(route);
+    }
+
     ALOGD ("%s: enter, route:%x", fn, handle);
     if (handle  == NFA_HANDLE_INVALID)
     {
         return false;
     }
+
+    current_handle = ((handle == 0x4C0) ? 0x01 : 0x02);
+    if (handle == 0x400)
+        current_handle = 0x00;
+
+    ALOGD("%s: enter, mDefaultEe:%x", fn, current_handle);
+    SecureElement::getInstance().activate(current_handle);
     if (power == NFA_EE_PWR_STATE_NONE)
     {
         power = NFA_EE_PWR_STATE_ON;
     }
+    SyncEventGuard guard(SecureElement::getInstance().mAidAddRemoveEvent);
     tNFA_STATUS nfaStat = NFA_EeAddAidRouting(handle, aidLen, (UINT8*) aid, power);
 #else
     tNFA_STATUS nfaStat = NFA_EeAddAidRouting(route, aidLen, (UINT8*) aid, 0x01);
@@ -371,14 +318,37 @@ bool RoutingManager::addAidRouting(const UINT8* aid, UINT8 aidLen, int route)
     if (nfaStat == NFA_STATUS_OK)
     {
         ALOGD ("%s: routed AID", fn);
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+        mIsDirty = true;
+        SecureElement::getInstance().mAidAddRemoveEvent.wait();
+#endif
         return true;
     } else
     {
-        ALOGE ("%s: failed to route AID", fn);
+        ALOGE("%s: failed to route AID");
         return false;
     }
 }
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+void RoutingManager::clearAidRouting()
+{
+    static const char fn [] = "RoutingManager::clearAidRouting";
+    ALOGD("%s: enter", fn);
+    SyncEventGuard guard(SecureElement::getInstance().mAidAddRemoveEvent);
+    tNFA_STATUS nfaStat = NFA_EeRemoveAidRouting(NFA_REMOVE_ALL_AID_LEN, NFA_REMOVE_ALL_AID);
+    if (nfaStat == NFA_STATUS_OK)
+    {
+        SecureElement::getInstance().mAidAddRemoveEvent.wait();
+    }
+    else
+     {
+        ALOGE("%s: failed to clear AID");
+    }
+    mIsDirty = true;
+}
+
+#else
 bool RoutingManager::removeAidRouting(const UINT8* aid, UINT8 aidLen)
 {
     static const char fn [] = "RoutingManager::removeAidRouting";
@@ -394,6 +364,49 @@ bool RoutingManager::removeAidRouting(const UINT8* aid, UINT8 aidLen)
         return false;
     }
 }
+#endif
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+void RoutingManager::setDefaultTechRouting(int seId, int tech_switchon, int tech_switchoff)
+{
+    ALOGD("ENTER setDefaultTechRouting");
+    tNFA_STATUS nfaStat;
+    SyncEventGuard guard(mRoutingEvent);
+
+    nfaStat = NFA_EeSetDefaultTechRouting(seId, tech_switchon, tech_switchoff, 0);
+    if (nfaStat == NFA_STATUS_OK) {
+        mRoutingEvent.wait();
+        ALOGD("tech routing SUCCESS");
+    }
+    else {
+        ALOGE("Fail to set default tech routing");
+    }
+    nfaStat = NFA_EeUpdateNow();
+    if (nfaStat != NFA_STATUS_OK) {
+        ALOGE("Failed to commit routing configuration");
+    }
+}
+
+void RoutingManager::setDefaultProtoRouting(int seId, int proto_switchon, int proto_switchoff)
+{
+    tNFA_STATUS nfaStat;
+    ALOGD("ENTER setDefaultProtoRouting");
+    SyncEventGuard guard(mRoutingEvent);
+
+    nfaStat = NFA_EeSetDefaultProtoRouting(seId, proto_switchon, proto_switchoff, 0);
+    if (nfaStat == NFA_STATUS_OK) {
+        mRoutingEvent.wait();
+        ALOGD("proto routing SUCCESS");
+    }
+    else {
+        ALOGE("Fail to set default proto routing");
+    }
+    nfaStat = NFA_EeUpdateNow();
+    if (nfaStat != NFA_STATUS_OK) {
+        ALOGE("Failed to commit routing configuration");
+    }
+}
+#endif
 
 bool RoutingManager::commitRouting()
 {
@@ -556,8 +569,8 @@ void RoutingManager::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* event
         {
             ALOGD ("%s: NFA_EE_MODE_SET_EVT; status: 0x%04X  handle: 0x%04X  mActiveEeHandle: 0x%04X", fn,
                     eventData->mode_set.status, eventData->mode_set.ee_handle, se.mActiveEeHandle);
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE) // TODO : check if it a regression or not ?
-            se.notifyModeSet(eventData->mode_set.ee_handle, !(eventData->mode_set.status));
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            se.notifyModeSet(eventData->mode_set.ee_handle, !(eventData->mode_set.status), eventData->mode_set.ee_status);
 #else
             se.notifyModeSet(eventData->mode_set.ee_handle, eventData->mode_set.status);
 #endif
@@ -706,12 +719,20 @@ void RoutingManager::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* event
     case NFA_EE_ADD_AID_EVT:
         {
             ALOGD ("%s: NFA_EE_ADD_AID_EVT  status=%u", fn, eventData->status);
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            SyncEventGuard guard(se.mAidAddRemoveEvent);
+            se.mAidAddRemoveEvent.notifyOne();
+#endif
         }
         break;
 
     case NFA_EE_REMOVE_AID_EVT:
         {
             ALOGD ("%s: NFA_EE_REMOVE_AID_EVT  status=%u", fn, eventData->status);
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            SyncEventGuard guard(se.mAidAddRemoveEvent);
+            se.mAidAddRemoveEvent.notifyOne();
+#endif
         }
         break;
 
@@ -721,7 +742,13 @@ void RoutingManager::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* event
                 eventData->new_ee.ee_handle, eventData->new_ee.ee_status);
         }
         break;
-
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    case NFA_EE_ROUT_ERR_EVT:
+        {
+            ALOGD("%s: NFA_EE_ROUT_ERR_EVT  status=%u", fn, eventData->status);
+        }
+        break;
+#endif
     default:
         ALOGE ("%s: unknown event=%u ????", fn, event);
         break;
