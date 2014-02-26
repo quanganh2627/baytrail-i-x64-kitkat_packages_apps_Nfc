@@ -302,4 +302,6 @@ public interface DeviceHost {
     boolean enableReaderMode(int technologies);
 
     boolean disableReaderMode();
+
+    boolean setScrnState(int Enable);
 }
