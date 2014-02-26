@@ -57,7 +57,7 @@ bool RoutingManager::initialize (nfc_jni_native_data* native)
     mNativeData = native;
 
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
-     mIsDirty = false;
+     mIsDirty = true;
 
     if (GetNxpNumValue(NAME_NXP_DEFAULT_SE, (void*)&num, sizeof(num)))
     {
