@@ -254,6 +254,12 @@ public class NativeNfcManager implements DeviceHost {
     }
 
     @Override
+    public boolean setScrnState(int Enable) {
+        // empty function
+        return false;
+    }
+
+    @Override
     public int doGetSecureElementTechList() {
         return 0;
     }
