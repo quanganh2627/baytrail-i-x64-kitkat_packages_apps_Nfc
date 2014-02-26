@@ -173,6 +173,7 @@ public class NfcService implements DeviceHostListener {
     /* PN547 specific MSG */
     static final int MSG_CLEAR_ROUTING = 1017;
     static final int MSG_CONNECTIVITY_EVENT = 1023;
+    static final int MSG_SET_SCREEN_STATE = 1025;
 
     static final int TASK_ENABLE = 1;
     static final int TASK_DISABLE = 2;
@@ -1212,6 +1213,14 @@ public class NfcService implements DeviceHostListener {
                     mAidRoutingManager.onNfccRoutingTableCleared();
                     mAidCache.onAidFilterUpdated();
                     return true;
+                }
+
+                @Override
+                public void setScreenOffCondition(boolean enable) throws RemoteException {
+                    Message msg = mHandler.obtainMessage();
+                    msg.what = MSG_SET_SCREEN_STATE;
+                    msg.arg1 = (true == enable) ? 1 : 0;
+                    mHandler.sendMessage(msg);
                 }
             };
         }
@@ -2382,6 +2391,11 @@ public class NfcService implements DeviceHostListener {
                 }
                 case MSG_COMMIT_ROUTING: {
                     applyRouting(true);
+                    break;
+                }
+                case MSG_SET_SCREEN_STATE: {
+                    int enable = msg.arg1;
+                    mDeviceHost.setScrnState(enable);
                     break;
                 }
                 case MSG_CLEAR_ROUTING: {

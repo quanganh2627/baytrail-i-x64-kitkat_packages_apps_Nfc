@@ -187,6 +187,14 @@ public class NativeNfcManager implements DeviceHost {
         return doDeinitialize();
     }
 
+    private native void doSetScrnState(int Enable);
+
+    @Override
+    public boolean setScrnState(int Enable) {
+        doSetScrnState(Enable);
+        return true;
+    }
+
     @Override
     public String getName() {
         return DRIVER_NAME;

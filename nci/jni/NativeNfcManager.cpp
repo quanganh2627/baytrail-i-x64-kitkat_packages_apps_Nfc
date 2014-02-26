@@ -237,6 +237,7 @@ static jint nfcManager_getSecureElementTechList(JNIEnv* e, jobject o);
 static void nfcManager_setSecureElementListenTechMask(JNIEnv *e, jobject o, jint tech_mask);
 
 void nfcManager_doSetVenConfigValue (JNIEnv *e, jobject o, jint venconfig);
+void nfcManager_doSetScrnState(JNIEnv *e, jobject o, jint Enable);
 #endif
 static UINT16 sCurrentConfigLen;
 static UINT8 sConfig[256];
@@ -2940,7 +2941,10 @@ static JNINativeMethod gMethods[] =
     //Factory Test Code
 
     {"doSetVenConfigValue", "(I)V",
-            (void *) nfcManager_doSetVenConfigValue}
+            (void *) nfcManager_doSetVenConfigValue},
+    {"doSetScrnState", "(I)V",
+            (void *) nfcManager_doSetScrnState}
+
 #endif
 };
 
@@ -3241,6 +3245,12 @@ static int nfcManager_doJcosDownload(JNIEnv* e, jobject o)
     ALOGD ("%s: No p61", __FUNCTION__);
 #endif
     return status;
+}
+
+
+void nfcManager_doSetScrnState(JNIEnv *e, jobject o, jint Enable)
+{
+    setScreenState(Enable  ? true : false);
 }
 
 void nfcManager_doSetVenConfigValue(JNIEnv *e, jobject o, jint venconfig)
