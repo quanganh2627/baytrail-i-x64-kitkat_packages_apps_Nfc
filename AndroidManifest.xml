@@ -45,6 +45,7 @@
     <uses-permission android:name="com.android.permission.HANDOVER_STATUS" />
     <uses-permission android:name="org.simalliance.openmobileapi.SMARTCARD" />
     <uses-permission android:name="android.permission.BROADCAST_STICKY" />
+    <uses-permission android:name="com.intel.permission.SECURITY_ENGINE" />
 
     <application android:name=".NfcApplication"
                  android:icon="@drawable/icon"
