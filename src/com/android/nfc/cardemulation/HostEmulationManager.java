@@ -186,9 +186,11 @@ public class HostEmulationManager {
                     return;
                 }
                 AidResolveInfo resolveInfo = mAidCache.resolveAidPrefix(selectAid);
-                if (resolveInfo == null || resolveInfo.services.size() == 0) {
+                if (resolveInfo == null || resolveInfo.services == null
+                        || resolveInfo.services.size() == 0) {
                     resolveInfo = mAidCache.resolveAidPartialMatch(selectAid);
-                    if (resolveInfo == null || resolveInfo.services.size() == 0) {
+                    if (resolveInfo == null || resolveInfo.services == null
+                            || resolveInfo.services.size() == 0) {
                         // Tell the remote we don't handle this AID
                         NfcService.getInstance().sendData(AID_NOT_FOUND);
                         return;

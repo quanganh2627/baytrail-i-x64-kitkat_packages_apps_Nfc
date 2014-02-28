@@ -75,7 +75,12 @@ public class VzwRoutingCache {
 
     boolean IsAidAllowed(String aid) {
         RouteEntry elem = (RouteEntry) mVzwCache.get(aid);
-        return elem.isAllowed();
+        if (elem == null) {
+            Log.d(TAG, "IsAidAllowed() : elem is NULL");
+            return false;
+        } else {
+            return elem.isAllowed();
+        }
     }
 
     static String toHexString(byte[] buffer, int offset, int length) {
@@ -90,8 +95,12 @@ public class VzwRoutingCache {
 
     int getPowerState(String aid) {
         RouteEntry elem = (RouteEntry) mVzwCache.get(aid);
-        return elem.getPowerState();
-
+        if (elem == null) {
+            Log.d(TAG, "getPowerState() : elem is NULL");
+            return 0;
+        } else {
+            return elem.getPowerState();
+        }
     }
 
     boolean isAidPresent(String aid) {
