@@ -583,4 +583,7 @@ public class NativeNfcManager implements DeviceHost {
         mListener.onHostCardEmulationDeactivated();
     }
 
+    private void notifyErrorEvent(int error) {
+        mListener.onErrorEvent(error);
+    }
 }

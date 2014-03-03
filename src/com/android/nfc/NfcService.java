@@ -100,6 +100,7 @@ import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.Pair;
+import android.widget.Toast;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -337,6 +338,7 @@ public class NfcService implements DeviceHostListener {
     private HostEmulationManager mHostEmulationManager;
     private AidRoutingManager mAidRoutingManager;
     private AidFilter mAidFilter ;
+    private ToastHandler mToastHandler;
 
     private static NfcService sService;
 
@@ -529,6 +531,14 @@ public class NfcService implements DeviceHostListener {
         }
     }
 
+    @Override
+    public void onErrorEvent(int error) {
+        if (mToastHandler != null) {
+            mToastHandler.showToast("Routing table: too many rules!!!");
+            mToastHandler.showToast("Please, uninstall all your wallets and reboot your phone");
+        }
+    }
+
     final class ReaderModeParams {
         public int flags;
         public IAppCallback callback;
@@ -546,6 +556,7 @@ public class NfcService implements DeviceHostListener {
         sService = this;
 
         mContext = nfcApplication;
+        mToastHandler = new ToastHandler(mContext);
         mContentResolver = mContext.getContentResolver();
         mDeviceHost = new NativeNfcManager(mContext, this);
 
@@ -2994,6 +3005,29 @@ public class NfcService implements DeviceHostListener {
             mNfcDispatcher.dump(fd, pw, args);
             pw.println(mDeviceHost.dump());
 
+        }
+    }
+
+    /* For Toast from background process*/
+    private class ToastHandler {
+        // General attributes
+        private Context mContext;
+        private Handler mHandler;
+
+        public ToastHandler(Context context) {
+            this.mContext = context;
+            this.mHandler = new Handler(context.getMainLooper());
+        }
+
+        public void showToast(final CharSequence text) {
+            final Runnable runnable = new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(mContext, text, Toast.LENGTH_LONG).show();
+                }
+            };
+
+            mHandler.post(runnable);
         }
     }
 }
