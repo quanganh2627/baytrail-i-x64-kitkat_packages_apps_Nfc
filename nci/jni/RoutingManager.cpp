@@ -491,6 +491,26 @@ void RoutingManager::handleData (const UINT8* data, UINT16 dataLen)
     }
 }
 
+void RoutingManager::handleError(int error)
+{
+    JNIEnv* e = NULL;
+    ALOGE("handleError(%d)", error);
+    ScopedAttach attach(mNativeData->vm, &e);
+    if (e == NULL)
+    {
+        ALOGE("jni env is null");
+        return;
+    }
+
+    e->CallVoidMethod(mNativeData->manager,
+            android::gCachedNfcManagerNotifyErrorEvent, (jint) error);
+    if (e->ExceptionCheck())
+    {
+        e->ExceptionClear();
+        ALOGE("fail notify error");
+    }
+}
+
 void RoutingManager::stackCallback (UINT8 event, tNFA_CONN_EVT_DATA* eventData)
 {
     static const char fn [] = "RoutingManager::stackCallback";

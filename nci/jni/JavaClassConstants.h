@@ -31,6 +31,7 @@ namespace android
     extern jmethodID gCachedNfcManagerNotifySeFieldDeactivated;
     extern jmethodID gCachedNfcManagerNotifySeListenActivated;
     extern jmethodID gCachedNfcManagerNotifySeListenDeactivated;
+    extern jmethodID gCachedNfcManagerNotifyErrorEvent;
 
     /*
      * host-based card emulation

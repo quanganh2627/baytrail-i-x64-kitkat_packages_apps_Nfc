@@ -151,6 +151,7 @@ namespace android
     jmethodID               gCachedNfcManagerNotifyHostEmuActivated;
     jmethodID               gCachedNfcManagerNotifyHostEmuData;
     jmethodID               gCachedNfcManagerNotifyHostEmuDeactivated;
+    jmethodID               gCachedNfcManagerNotifyErrorEvent;
     const char*             gNativeP2pDeviceClassName                 = "com/android/nfc/dhimpl/NativeP2pDevice";
     const char*             gNativeLlcpServiceSocketClassName         = "com/android/nfc/dhimpl/NativeLlcpServiceSocket";
     const char*             gNativeLlcpConnectionlessSocketClassName  = "com/android/nfc/dhimpl/NativeLlcpConnectionlessSocket";
@@ -823,6 +824,9 @@ static jboolean nfcManager_initNativeStruc (JNIEnv* e, jobject o)
     sCachedNfcManagerNotifySeEmvCardRemoval =  e->GetMethodID(cls.get(),
             "notifySeEmvCardRemoval", "()V");
 
+    gCachedNfcManagerNotifyErrorEvent = e->GetMethodID(cls.get(),
+            "notifyErrorEvent", "(I)V");
+
     if (nfc_jni_cache_object(e, gNativeNfcTagClassName, &(nat->cached_NfcTag)) == -1)
     {
         ALOGE ("%s: fail cache NativeNfcTag", __FUNCTION__);
@@ -992,6 +996,7 @@ void nfaDeviceManagementCallback (UINT8 dmEvent, tNFA_DM_CBACK_DATA* eventData)
         if (eventData->status != NFA_STATUS_OK)
         {
             ALOGD("AID Routing table configuration Failed!!!");
+            RoutingManager::getInstance().handleError(0);
         }
         else
         {

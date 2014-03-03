@@ -54,6 +54,7 @@ public:
 #else
     void setDefaultRouting();
 #endif
+    void handleError(int error);
 private:
     RoutingManager();
     ~RoutingManager();

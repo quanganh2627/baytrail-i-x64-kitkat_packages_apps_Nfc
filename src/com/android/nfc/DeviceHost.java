@@ -100,6 +100,8 @@ public interface DeviceHost {
         public void onSeEmvCardRemoval();
 
         public void onSeMifareAccess(byte[] block);
+
+        public void onErrorEvent(int error);
     }
 
     public interface TagEndpoint {
