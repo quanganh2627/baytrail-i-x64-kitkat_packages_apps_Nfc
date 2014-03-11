@@ -62,7 +62,9 @@ namespace android
 {
     extern nfc_jni_native_data* getNative(JNIEnv *e, jobject o);
     extern bool nfcManager_isNfcActive();
+#if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     extern int gGeneralTransceiveTimeout;
+#endif
 }
 
 extern bool         gActivated;
@@ -785,7 +787,7 @@ static int reSelect (tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded)
                 ALOGE ("%s: timeout waiting for deactivate", __FUNCTION__);
             }
         }
-#if(NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED != TRUE)
         if (!sGotDeactivate)
         {
             rVal = STATUS_CODE_TARGET_LOST;

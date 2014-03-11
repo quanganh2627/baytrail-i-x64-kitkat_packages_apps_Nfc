@@ -17,10 +17,10 @@
  *  limitations under the License.
  *
  ******************************************************************************/
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
 #include "OverrideLog.h"
 #include "SyncEvent.h"
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
 
 extern "C"
 {

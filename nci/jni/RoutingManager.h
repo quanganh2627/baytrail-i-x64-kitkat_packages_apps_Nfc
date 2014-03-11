@@ -51,8 +51,6 @@ public:
     bool commitRouting();
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     void setRouting(bool);
-#else
-    void setDefaultRouting();
 #endif
 private:
     RoutingManager();
@@ -73,8 +71,8 @@ private:
 
     // Fields below are final after initialize()
     nfc_jni_native_data* mNativeData;
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     int mDefaultEe;
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     bool mIsDirty;
 #endif
     SyncEvent mEeRegisterEvent;

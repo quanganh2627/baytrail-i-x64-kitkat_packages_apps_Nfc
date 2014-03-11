@@ -876,14 +876,6 @@ void NfcTag::fillNativeNfcTagMembers4 (JNIEnv* e, jclass tag_cls, jobject tag, t
         switch (mTechLibNfcTypes[i])
         {
         case NFC_PROTOCOL_T1T:
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
-            {
-                ALOGD ("%s: T1T; tech A", fn);
-                actBytes.reset(e->NewByteArray(1));
-                e->SetByteArrayRegion(actBytes.get(), 0, 1, (jbyte*) &mTechParams [i].param.pa.sel_rsp);
-            }
-            break;
-#endif
         case NFC_PROTOCOL_T2T:
             {
                 if (mTechLibNfcTypes[i] == NFC_PROTOCOL_T1T)

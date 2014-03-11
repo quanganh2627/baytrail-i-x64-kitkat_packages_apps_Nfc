@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+
 #include "DwpChannel.h"
 #include "SecureElement.h"
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
 
 bool IsWiredMode_Enable();
 
