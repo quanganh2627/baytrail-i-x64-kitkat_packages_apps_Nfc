@@ -516,7 +516,7 @@ static void nfaConnectionCallback (UINT8 connEvent, tNFA_CONN_EVT_DATA* eventDat
             // Disable RF field events in case of p2p
             UINT8  nfa_disable_rf_events[] = { 0x00 };
             ALOGD ("%s: Disabling RF field events", __FUNCTION__);
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED != TRUE)
             status = NFA_SetConfig(NCI_PARAM_ID_RF_FIELD_INFO, sizeof(nfa_disable_rf_events),
                     &nfa_disable_rf_events[0]);
             if (status == NFA_STATUS_OK) {
@@ -594,7 +594,7 @@ static void nfaConnectionCallback (UINT8 connEvent, tNFA_CONN_EVT_DATA* eventDat
                 ALOGD("%s: NFA_DEACTIVATED_EVT; is p2p", __FUNCTION__);
                 // Disable RF field events in case of p2p
                 UINT8  nfa_enable_rf_events[] = { 0x01 };
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED != TRUE)
                 if (!sIsDisabling && sIsNfaEnabled)
                 {
                     ALOGD ("%s: Enabling RF field events", __FUNCTION__);
@@ -1003,12 +1003,13 @@ void nfaDeviceManagementCallback (UINT8 dmEvent, tNFA_DM_CBACK_DATA* eventData)
             ALOGD("AID Routing Table configured.");
         }
         break;
-#endif
+
 
     case NFA_DM_EMVCO_PCD_COLLISION_EVT:
         ALOGE("STATUS_EMVCO_PCD_COLLISION - Multiple card detected");
         SecureElement::getInstance().notifyEmvcoMultiCardDetectedListeners();
         break;
+#endif
 
     default:
         ALOGD ("%s: unhandled event", __FUNCTION__);
@@ -1049,7 +1050,7 @@ static jboolean nfcManager_sendRawFrame (JNIEnv* e, jobject, jbyteArray data)
 **
 *******************************************************************************/
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
-static jboolean nfcManager_routeAid(JNIEnv* e, jobject, jbyteArray aid, jint route, jint power)
+static jboolean nfcManager_routeAid (JNIEnv* e, jobject, jbyteArray aid, jint route, jint power)
 #else
 static jboolean nfcManager_routeAid (JNIEnv* e, jobject, jbyteArray aid, jint route)
 #endif
@@ -1313,30 +1314,6 @@ static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
         startRfDiscovery(false);
     }
 
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
-    {
-        UINT8 sel_info = 0x60;
-        UINT8 lf_protocol = 0x02;
-        {
-            SyncEventGuard guard (android::sNfaSetConfigEvent);
-            status = NFA_SetConfig(NCI_PARAM_ID_LF_PROTOCOL, sizeof(UINT8), &lf_protocol);
-            if (status == NFA_STATUS_OK)
-                sNfaSetConfigEvent.wait ();
-            else
-                ALOGE ("%s: Could not able to configure lf_protocol", __FUNCTION__);
-        }
-
-        {
-            SyncEventGuard guard (android::sNfaSetConfigEvent);
-            status = NFA_SetConfig(NCI_PARAM_ID_LA_SEL_INFO, sizeof(UINT8), &sel_info);
-            if (status == NFA_STATUS_OK)
-                sNfaSetConfigEvent.wait ();
-            else
-                ALOGE ("%s: Could not able to configure sel_info", __FUNCTION__);
-        }
-    }
-#endif //EEPROM Init optimization
-
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     {
         status = setScreenState(true);
@@ -1345,7 +1322,6 @@ static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
             ALOGE("%s: fail enable setScreenState; error=0x%X", __FUNCTION__, status);
         }
     }
-#endif
 
     if ((GetNumValue(NAME_UICC_LISTEN_TECH_MASK, &num, sizeof(num))))
     {
@@ -1357,8 +1333,10 @@ static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
     }
 
     PeerToPeer::getInstance().enableP2pListening (false);
+    PeerToPeer::getInstance().setP2pListenMask(p2p_listen_mask);
+#endif
+
     {
-        PeerToPeer::getInstance().setP2pListenMask(p2p_listen_mask);
         SyncEventGuard guard (sNfaEnableDisablePollingEvent);
         stat = NFA_EnablePolling (tech_mask);
         if (stat == NFA_STATUS_OK)
@@ -1379,8 +1357,10 @@ static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
     {
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
         handle = SecureElement::getInstance().getEseHandleFromGenericId(SecureElement::UICC_ID);
+#endif
         ALOGD ("%s: Enable p2pListening", __FUNCTION__);
         PeerToPeer::getInstance().enableP2pListening (true);
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
         {
             SyncEventGuard guard (SecureElement::getInstance().mUiccListenEvent);
             stat = NFA_CeConfigureUiccListenTech (handle, 0x00);
@@ -1406,6 +1386,7 @@ static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
     }
     // Actually start discovery.
     startRfDiscovery (true);
+
     PowerSwitch::getInstance ().setModeOn (PowerSwitch::DISCOVERY);
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     sForceDiscovery = false;
@@ -2831,6 +2812,7 @@ static JNINativeMethod gMethods[] =
     {"unrouteAid", "([B)Z",
             (void*) nfcManager_unrouteAid},
 #endif
+
     {"enableDiscovery", "()V",
             (void*) nfcManager_enableDiscovery},
 

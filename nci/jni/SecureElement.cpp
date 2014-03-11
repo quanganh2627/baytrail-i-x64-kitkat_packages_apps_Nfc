@@ -630,7 +630,7 @@ jintArray SecureElement::getListOfEeHandles (JNIEnv* e)
 }
 #endif
 
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED != TRUE)
 /*******************************************************************************
 **
 ** Function:        getSecureElementIdList
@@ -704,7 +704,7 @@ bool SecureElement::activate (jint seID)
         return false;
     }
 
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED != TRUE)
     if (mActiveEeHandle != NFA_HANDLE_INVALID)
     {
         ALOGD ("%s: already active", fn);
