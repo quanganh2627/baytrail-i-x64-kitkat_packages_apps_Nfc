@@ -17,9 +17,10 @@
  *  limitations under the License.
  *
  ******************************************************************************/
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
 
 #include "HciRFParams.h"
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
 
 #define VAL_START_IDX 4
 #define MAX_AID_SIZE 10

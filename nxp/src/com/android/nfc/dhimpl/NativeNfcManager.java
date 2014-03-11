@@ -174,6 +174,12 @@ public class NativeNfcManager implements DeviceHost {
     }
 
     @Override
+    public boolean routeAid(byte[] aid, int route)
+    {
+        return false;
+    }
+
+    @Override
     public boolean routeAid(byte[] aid, int route, int power)
     {
         return false;

@@ -1276,8 +1276,7 @@ public class NfcService implements DeviceHostListener {
             Log.d(TAG,"Disabling Nfc.");
 
             //Check if this a device shutdown or Nfc only Nfc disable.
-            if(isDeviceShuttingDown == false)
-            {
+            if ((mClfIsPn547) && (isDeviceShuttingDown == false))  {
                 //Since only Nfc is getting disabled so disable CE from EE.
                 mDeviceHost.doDeselectSecureElement(PN547NfcAdapterExt.UICC_ID_TYPE);
                 mDeviceHost.doDeselectSecureElement(PN547NfcAdapterExt.SMART_MX_ID_TYPE);
@@ -2404,7 +2403,11 @@ public class NfcService implements DeviceHostListener {
                     int route = msg.arg1;
                     int power = msg.arg2;
                     String aid = (String) msg.obj;
-                    mDeviceHost.routeAid(hexStringToBytes(aid), route, power);
+                    if (mClfIsPn547) {
+                        mDeviceHost.routeAid(hexStringToBytes(aid), route, power);
+                    } else {
+                        mDeviceHost.routeAid(hexStringToBytes(aid), route);
+                    }
                     // Restart polling config
                     break;
                 }

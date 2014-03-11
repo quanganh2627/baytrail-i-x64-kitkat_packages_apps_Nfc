@@ -203,6 +203,9 @@ public class NativeNfcManager implements DeviceHost {
     public native boolean sendRawFrame(byte[] data);
 
     @Override
+    public native boolean routeAid(byte[] aid, int route);
+
+    @Override
     public boolean routeAid(byte[] aid, int route, int powerState) {
 
         boolean status = true;
@@ -224,10 +227,8 @@ public class NativeNfcManager implements DeviceHost {
     @Override
     public native void doSetSecureElementListenTechMask(int tech_mask);
 
-     @Override
-    public boolean unrouteAid(byte[] aid) {
-        throw new RuntimeException("unrouteAid(byte[] aid) is not supported");
-    }
+    @Override
+    public native boolean unrouteAid(byte[] aid);
 
     @Override
     public native void enableDiscovery();
@@ -245,17 +246,13 @@ public class NativeNfcManager implements DeviceHost {
     public native int[] doGetSecureElementList();
 
     @Override
-    public void doSelectSecureElement() {
-        throw new RuntimeException("doSelectSecureElement()");
-    }
-
-    @Override
-    public void doDeselectSecureElement() {
-        throw new RuntimeException("doDeselectSecureElement()");
-    }
+    public native void doSelectSecureElement();
 
     @Override
     public native void doSelectSecureElement(int seID);
+
+    @Override
+    public native void doDeselectSecureElement();
 
     @Override
     public native void doDeselectSecureElement(int seID);
