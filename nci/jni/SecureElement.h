@@ -120,7 +120,7 @@ public:
     *******************************************************************************/
     void finalize ();
 
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED != TRUE)
     /*******************************************************************************
     **
     ** Function:        getSecureElementIdList
@@ -512,7 +512,7 @@ public:
     **
     *******************************************************************************/
     bool setEseListenTechMask(UINT8 tech_mask);
-#endif
+
 
     bool sendEvent(UINT8 event);
 
@@ -544,6 +544,7 @@ public:
 #ifdef NFCC_PN547
     static const UINT8 EVT_END_OF_APDU_TRANSFER = 0x21;    //NXP Propritory
     static const UINT8 EVT_RESET_ESE = 0x11;
+#endif
 #endif
 
 private:
@@ -605,11 +606,11 @@ private:
     SyncEvent       mPipeOpenedEvent;
     SyncEvent       mAllocateGateEvent;
     SyncEvent       mDeallocateGateEvent;
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED != TRUE)
     SyncEvent       mRoutingEvent;
 #endif
     SyncEvent       mUiccInfoEvent;
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED != TRUE)
     SyncEvent       mUiccListenEvent;
     SyncEvent       mAidAddRemoveEvent;
 #endif
@@ -623,8 +624,8 @@ private:
     SyncEvent       mDiscMapEvent;
 #endif
     UINT8           mVerInfo [3];
-    UINT8           mAtrInfo[40];
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    UINT8           mAtrInfo[40];
     bool            mGetAtrRspwait;
 #endif
     UINT8           mResponseData [MAX_RESPONSE_SIZE];

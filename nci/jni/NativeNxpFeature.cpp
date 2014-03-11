@@ -22,6 +22,8 @@
 #include "config.h"
 #include "NfcAdaptation.h"
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+
 extern "C"
 {
 #include "nfa_api.h"
@@ -110,7 +112,6 @@ void NxpResponse_SetVenConfig_Cb(UINT8 event, UINT16 param_len, UINT8 *p_param)
     gnxpfeature_conf.NxpFeatureConfigEvt.notifyOne ();
 }
 
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
 /*******************************************************************************
  **
  ** Function:        EmvCo_dosetPoll
@@ -328,6 +329,6 @@ tNFA_STATUS Nxp_SelfTest(uint8_t testcase, uint8_t* param)
     return status;
 }
 //Factory Test Code --end
-#endif
 
 } /* namespace android */
+#endif

@@ -325,7 +325,7 @@ bool RoutingManager::addAidRouting(const UINT8* aid, UINT8 aidLen, int route)
         return true;
     } else
     {
-        ALOGE("%s: failed to route AID");
+        ALOGE ("%s: failed to route AID", fn);
         return false;
     }
 }

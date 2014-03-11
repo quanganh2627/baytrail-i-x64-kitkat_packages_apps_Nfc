@@ -92,7 +92,7 @@ static jint nativeNfcSecureElement_doOpenSecureElementConnection (JNIEnv*, jobje
         secElemHandle = EE_ERROR_LISTEN_MODE;
         goto TheEnd;
     }
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED != TRUE)
     if (se.isRfFieldOn()) {
         ALOGD("Denying SE open due to SE in active RF field");
         secElemHandle = EE_ERROR_EXT_FIELD;

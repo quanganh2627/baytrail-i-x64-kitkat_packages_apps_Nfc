@@ -251,9 +251,12 @@ public interface DeviceHost {
 
     public boolean sendRawFrame(byte[] data);
 
+    public boolean routeAid(byte[] aid, int route);
+
     public boolean routeAid(byte[] aid, int route, int powerState);
 
     public boolean unrouteAid(byte[] aid);
+
     public void clearRouting();
 
     public int setEmvCoPollProfile(boolean enable, int route);
