@@ -967,10 +967,11 @@ static jint nativeNfcTag_doReconnect (JNIEnv*, jobject)
     }
 #if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     // special case for TypeB and TypeA random UID
-    if ((natTag.mTechLibNfcTypes[0] == NFA_PROTOCOL_ISO_DEP &&
+    if ((sCurrentRfInterface != NCI_INTERFACE_FRAME) &&
+            ((natTag.mTechLibNfcTypes[0] == NFA_PROTOCOL_ISO_DEP &&
             true == natTag.isTypeBTag()) ||
             (NfcTag::getInstance().mTechLibNfcTypes[0] == NFA_PROTOCOL_ISO_DEP &&
-            uid_len > 0 && uid[0] == 0x08))
+            uid_len > 0 && uid[0] == 0x08)))
     {
         ALOGD ("%s: reconnect for TypeB / TypeA random uid", __FUNCTION__);
         sPresenceCheckTimer.set(500, presenceCheckTimerProc);
