@@ -165,8 +165,11 @@ static bool         cashbeedetected = false;
 #endif
 static int reSelect(tNFA_INTF_TYPE rfInterface, bool fSwitchIfNeeded);
 static bool switchRfInterface(tNFA_INTF_TYPE rfInterface);
-
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+uint8_t key1[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+uint8_t key2[6] = {0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7};
+bool isMifare = false;
+
 static int           doReconnectFlag = 0x00;
 
 static void nfaVSCCallback(UINT8 event, UINT16 param_len, UINT8 *p_param);
@@ -496,10 +499,12 @@ static jboolean nativeNfcTag_doWrite (JNIEnv* e, jobject, jbyteArray buf)
             ALOGD ("%s: try format", __FUNCTION__);
             sem_init (&sFormatSem, 0, 0);
             sFormatOk = false;
-#if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            isMifare = false;
             if (NfcTag::getInstance ().mTechLibNfcTypes[0] == NFA_PROTOCOL_MIFARE)
             {
-                status = EXTNS_MfcFormatTag();
+                isMifare = true;
+                status = EXTNS_MfcFormatTag(key1, sizeof(key1));
             }
             else
             {
@@ -510,6 +515,16 @@ static jboolean nativeNfcTag_doWrite (JNIEnv* e, jobject, jbyteArray buf)
 #endif
             sem_wait (&sFormatSem);
             sem_destroy (&sFormatSem);
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            if (isMifare == true && sFormatOk != true)
+            {
+                sem_init (&sFormatSem, 0, 0);
+                status = EXTNS_MfcFormatTag(key2,sizeof(key2));
+                sem_wait (&sFormatSem);
+                sem_destroy (&sFormatSem);
+            }
+#endif
             if (sFormatOk == false) //if format operation failed
                 goto TheEnd;
         }
@@ -1811,14 +1826,7 @@ static jboolean nativeNfcTag_doPresenceCheck (JNIEnv*, jobject)
         ALOGD ("%s: presence check for TypeB - return", __FUNCTION__);
         goto TheEnd;
     }
-#endif
-    if (sem_init (&sPresenceCheckSem, 0, 0) == -1)
-    {
-        ALOGE ("%s: semaphore creation failed (errno=0x%08x)", __FUNCTION__, errno);
-        return JNI_FALSE;
-    }
 
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     if (NfcTag::getInstance().mTechLibNfcTypes[0] == NFA_PROTOCOL_T3BT)
     {
         UINT8 *pbuf = NULL;
@@ -1850,6 +1858,12 @@ static jboolean nativeNfcTag_doPresenceCheck (JNIEnv*, jobject)
         }
     }
 #endif
+
+    if (sem_init (&sPresenceCheckSem, 0, 0) == -1)
+    {
+        ALOGE ("%s: semaphore creation failed (errno=0x%08x)", __FUNCTION__, errno);
+        return JNI_FALSE;
+    }
 
     status = NFA_RwPresenceCheck ();
     if (status == NFA_STATUS_OK)
@@ -2004,7 +2018,9 @@ static jboolean nativeNfcTag_doNdefFormat (JNIEnv*, jobject, jbyteArray)
 {
     ALOGD ("%s: enter", __FUNCTION__);
     tNFA_STATUS status = NFA_STATUS_OK;
-
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    isMifare = false;
+#endif
     // Do not try to format if tag is already deactivated.
     if (NfcTag::getInstance ().isActivated () == false)
     {
@@ -2014,11 +2030,13 @@ static jboolean nativeNfcTag_doNdefFormat (JNIEnv*, jobject, jbyteArray)
 
     sem_init (&sFormatSem, 0, 0);
     sFormatOk = false;
-#if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     if (NfcTag::getInstance ().mTechLibNfcTypes[0] == NFA_PROTOCOL_MIFARE)
     {
         status = nativeNfcTag_doReconnect (e, o);
-        status = EXTNS_MfcFormatTag();
+        isMifare = true;
+        ALOGD("Format with First Key");
+        status = EXTNS_MfcFormatTag(key1, sizeof(key1));
     }
     else
     {
@@ -2032,11 +2050,41 @@ static jboolean nativeNfcTag_doNdefFormat (JNIEnv*, jobject, jbyteArray)
         ALOGD ("%s: wait for completion", __FUNCTION__);
         sem_wait (&sFormatSem);
         status = sFormatOk ? NFA_STATUS_OK : NFA_STATUS_FAILED;
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+        if (sFormatOk == true && isMifare == true)
+            ALOGD ("Formay with First Key Success");
+#endif
     }
     else
         ALOGE ("%s: error status=%u", __FUNCTION__, status);
     sem_destroy (&sFormatSem);
-#if(NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    if (isMifare == true && sFormatOk != true)
+    {
+        ALOGD ("Format with First Key Failed");
+
+        sem_init (&sFormatSem, 0, 0);
+
+        status = nativeNfcTag_doReconnect (e, o);
+        ALOGD ("Format with Second Key");
+        status = EXTNS_MfcFormatTag(key2,sizeof(key2));
+        if (status == NFA_STATUS_OK)
+        {
+            ALOGD ("%s:2nd try wait for completion", __FUNCTION__);
+            sem_wait (&sFormatSem);
+            status = sFormatOk ? NFA_STATUS_OK : NFA_STATUS_FAILED;
+        }
+        else
+            ALOGE ("%s: error status=%u", __FUNCTION__, status);
+        sem_destroy (&sFormatSem);
+
+        if (sFormatOk)
+            ALOGD ("Formay with Second Key Success");
+        else
+            ALOGD ("Formay with Second Key Failed");
+    }
+
     if (NfcTag::getInstance ().mTechLibNfcTypes[0] == NFA_PROTOCOL_ISO_DEP)
     {
         int retCode = NFCSTATUS_SUCCESS;

@@ -160,7 +160,8 @@ static jboolean nativeNfcSecureElement_doDisconnectSecureElementConnection (JNIE
     bool stat = false;
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     //Send the EVT_END_OF_APDU_TRANSFER event at the end of wired mode session.
-    stat = SecureElement::getInstance().sendEvent(SecureElement::EVT_END_OF_APDU_TRANSFER);
+    /*Below line is commented to fix the Jcop Download issue*/
+    //stat = SecureElement::getInstance().sendEvent(SecureElement::EVT_END_OF_APDU_TRANSFER);
 
     if (stat == false)
         goto TheEnd;
@@ -264,6 +265,12 @@ static jbyteArray nativeNfcSecureElement_doTransceive (JNIEnv* e, jobject, jint 
     int timeout = NfcTag::getInstance ().getTransceiveTimeout (TARGET_TYPE_ISO14443_4); //NFC service expects JNI to use ISO-DEP's timeout
 #endif
     ScopedByteArrayRW bytes(e, data);
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    /* Temp fix for jcop download*/
+    SecureElement::getInstance().SecEle_Modeset(0x01);
+    usleep(100 * 1000);
+#endif
 
     ALOGD("%s: enter; handle=0x%X; buf len=%zu", __FUNCTION__, handle, bytes.size());
     SecureElement::getInstance().transceive(reinterpret_cast<UINT8*>(&bytes[0]), bytes.size(), recvBuffer, recvBufferMaxSize, recvBufferActualSize, timeout);

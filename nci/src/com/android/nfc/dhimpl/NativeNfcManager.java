@@ -232,6 +232,9 @@ public class NativeNfcManager implements DeviceHost {
     public native boolean unrouteAid(byte[] aid);
 
     @Override
+    public native void doSetScreenState(int mScreenState);
+
+    @Override
     public native void enableDiscovery();
 
     @Override

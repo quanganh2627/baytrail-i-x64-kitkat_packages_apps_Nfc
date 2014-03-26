@@ -39,6 +39,7 @@ typedef struct nxp_feature_data
 namespace android
 {
 static Nxp_Feature_Data_t gnxpfeature_conf;
+SyncEvent    NxpSetVenConfigEvt;
 
 }
 
@@ -108,8 +109,8 @@ void NxpResponse_SetVenConfig_Cb(UINT8 event, UINT16 param_len, UINT8 *p_param)
     {
         SetCbStatus(NFA_STATUS_FAILED);
     }
-    SyncEventGuard guard(gnxpfeature_conf.NxpFeatureConfigEvt);
-    gnxpfeature_conf.NxpFeatureConfigEvt.notifyOne ();
+    SyncEventGuard guard(NxpSetVenConfigEvt);
+    NxpSetVenConfigEvt.notifyOne ();
 }
 
 /*******************************************************************************
@@ -132,13 +133,13 @@ tNFA_STATUS EmvCo_dosetPoll(jboolean enable)
     SyncEventGuard guard (gnxpfeature_conf.NxpFeatureConfigEvt);
     if (enable)
     {
-        NFA_SetReconnectState(TRUE);
+        NFA_SetEmvCoState(TRUE);
         ALOGD("EMV-CO polling profile");
         cmd_buf[7] = 0x01; /*EMV-CO Poll*/
     }
     else
     {
-        NFA_SetReconnectState(FALSE);
+        NFA_SetEmvCoState(FALSE);
         ALOGD("NFC forum polling profile");
     }
     status = NFA_SendNxpNciCommand(sizeof(cmd_buf), cmd_buf, NxpResponse_Cb);
@@ -162,7 +163,7 @@ tNFA_STATUS EmvCo_dosetPoll(jboolean enable)
  ** Returns:         success/failure
  **
  *******************************************************************************/
-tNFA_STATUS setScreenState(jboolean isON)
+tNFA_STATUS SetScreenState(jint state)
 {
     tNFA_STATUS status = NFA_STATUS_FAILED;
     uint8_t screen_off_state_cmd_buff[] = {0x2F, 0x15, 0x01, 0x01};
@@ -171,15 +172,24 @@ tNFA_STATUS setScreenState(jboolean isON)
 
     SetCbStatus(NFA_STATUS_FAILED);
     SyncEventGuard guard (gnxpfeature_conf.NxpFeatureConfigEvt);
-    if (isON == true)
+    if (state == 1)
     {
-        ALOGD("Set Screen ON");
+        ALOGD("Set Screen OFF");
+        screen_off_state_cmd_buff[3] = 0x01;
+    }
+    else if (state == 2)
+    {
+        ALOGD("Clear Screen ON");
         screen_off_state_cmd_buff[3] = 0x00;
+    }
+    else if (state == 3)
+    {
+        ALOGD("Screen ON-locked");
+        screen_off_state_cmd_buff[3] = 0x02;
     }
     else
     {
-        ALOGD("Clear Screen OFF");
-        screen_off_state_cmd_buff[3] = 0x01;
+        ALOGD("Invalid screen state");
     }
     status = NFA_SendNxpNciCommand(sizeof(screen_off_state_cmd_buff), screen_off_state_cmd_buff, NxpResponse_SetDhlf_Cb);
     if (status == NFA_STATUS_OK) {
@@ -224,12 +234,12 @@ tNFA_STATUS SetVenConfigValue(jint venconfig)
         return status;
     }
     SetCbStatus(NFA_STATUS_FAILED);
-    SyncEventGuard guard (gnxpfeature_conf.NxpFeatureConfigEvt);
+    SyncEventGuard guard (NxpSetVenConfigEvt);
     status = NFA_SendNxpNciCommand(sizeof(cmd_buf), cmd_buf, NxpResponse_SetVenConfig_Cb);
     if (status == NFA_STATUS_OK)
     {
         ALOGD ("%s: Success NFA_SendNxpNciCommand", __FUNCTION__);
-        gnxpfeature_conf.NxpFeatureConfigEvt.wait(); /* wait for callback */
+        NxpSetVenConfigEvt.wait(); /* wait for callback */
     }
     else
     {

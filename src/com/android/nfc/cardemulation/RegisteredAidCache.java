@@ -592,6 +592,10 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
                    Log.d(TAG, " set screen off enable for " + aid);
                    powerstate |= (powerstate | 0x80);
                 }
+                if (!isDefaultPayment || resolveInfo.defaultService.isOnHost())
+                {
+                    powerstate |= 0x40;
+                }
 
                 if (!resolveInfo.defaultService.isOnHost()) {
                    if (mRoutingManager.GetVzwCache().isAidPresent(aid)) {

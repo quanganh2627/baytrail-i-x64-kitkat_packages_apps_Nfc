@@ -110,6 +110,7 @@ namespace android
     extern tNFA_STATUS EmvCo_dosetPoll(jboolean enable);
     extern tNFA_STATUS SetDHListenFilter(jboolean enable);
     extern tNFA_STATUS SetVenConfigValue(jint venconfig);
+    extern tNFA_STATUS SetScreenState(int state);
     //Factory Test Code --start
     extern tNFA_STATUS Nxp_SelfTest(uint8_t testcase, uint8_t* param);
     extern void SetCbStatus(tNFA_STATUS status);
@@ -117,7 +118,6 @@ namespace android
     static void nfaNxpSelfTestNtfTimerCb(union sigval);
     //Factory Test Code --end
     extern bool getReconnectState(void);
-    extern tNFA_STATUS setScreenState(jboolean isON);
 #endif
 }
 
@@ -224,7 +224,12 @@ static bool                 sIsSecElemSelected = false;  // has NFC service sele
                                      | NFA_TECHNOLOGY_MASK_KOVIO)
 #define DEFAULT_DISCOVERY_DURATION       500
 #define READER_MODE_DISCOVERY_DURATION   200
-
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+static int screenstate = 0;
+static void StoreScreenState(int state);
+int getScreenState();
+#endif
+static void nfcManager_doSetScreenState(JNIEnv* e, jobject o, jint state);
 static void nfaConnectionCallback (UINT8 event, tNFA_CONN_EVT_DATA *eventData);
 static void nfaDeviceManagementCallback (UINT8 event, tNFA_DM_CBACK_DATA *eventData);
 static bool isPeerToPeer (tNFA_ACTIVATED& activated);
@@ -269,6 +274,7 @@ static void nfcManager_doPrbsOn(JNIEnv* e, jobject o, jint tech, jint rate);
 bool isDiscoveryStarted();
 
 void checkforTranscation(UINT8 connEvent ,void * eventData);
+void cleanup_timer();
 /* Transaction Events in order */
 typedef enum transcation_events
 {
@@ -280,16 +286,28 @@ typedef enum transcation_events
     NFA_TRANS_DM_RF_TRANS_START,
     NFA_TRANS_DM_RF_FIELD_EVT_OFF,
     NFA_TRANS_DM_RF_TRANS_PROGRESS,
-    NFA_TRANS_DM_RF_TRANS_END
+    NFA_TRANS_DM_RF_TRANS_END,
+    NFA_TRANS_CE_ACTIVATED = 0x18,
+    NFA_TRANS_CE_DEACTIVATED = 0x19,
 }eTranscation_events_t;
 
-/* Structure to store transcation result */
+/* Structure to store screen state */
+typedef enum screen_state
+{
+    NFA_SCREEN_STATE_DEFAULT = 0x00,
+    NFA_SCREEN_STATE_OFF,
+    NFA_SCREEN_STATE_LOCKED,
+    NFA_SCREEN_STATE_UNLOCKED
+}eScreenState_t;
+
+/*Structure to store transcation result*/
 typedef struct Transcation_Check
 {
     struct timespec start_time;
     struct timespec end_time;
     bool trans_in_progress;
     char last_request;
+    eScreenState_t last_screen_state_request;
     eTranscation_events_t current_transcation_state;
     struct nfc_jni_native_data *transaction_nat;
 
@@ -303,7 +321,9 @@ static void set_transcation_stat(bool result);
 static void set_last_request(char status, struct nfc_jni_native_data *nat);
 static char get_last_request(void);
 void *enableThread(void *arg);
-
+static eScreenState_t get_lastScreenStateRequest(void);
+static void set_lastScreenStateRequest(eScreenState_t status);
+static IntervalTimer scleanupTimerProc_transaction;
 #endif
 
 /////////////////////////////////////////////////////////////
@@ -1315,13 +1335,16 @@ static void nfcManager_enableDiscovery (JNIEnv* e, jobject o)
     }
 
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+/*
     {
-        status = setScreenState(true);
+        StoreScreenState(3);
+        status = SetScreenState(true, false);
         if (status != NFA_STATUS_OK)
         {
-            ALOGE("%s: fail enable setScreenState; error=0x%X", __FUNCTION__, status);
+            ALOGE ("%s: fail enable SetScreenState; error=0x%X", __FUNCTION__, status);
         }
     }
+*/
 
     if ((GetNumValue(NAME_UICC_LISTEN_TECH_MASK, &num, sizeof(num))))
     {
@@ -1458,20 +1481,21 @@ void nfcManager_disableDiscovery (JNIEnv* e, jobject o)
     {
         ALOGE ("%s:P2P_LISTEN_MASK=0x0%d;", __FUNCTION__, p2p_listen_mask);
     }
-#endif
 
+    //PeerToPeer::getInstance().enableP2pListening (false);
+#else
     PeerToPeer::getInstance().enableP2pListening (false);
-
+#endif
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+  /*
     {
-        status = setScreenState(false);
+        StoreScreenState(1);
+        status = SetScreenState(1);
         if (status != NFA_STATUS_OK)
         {
-            ALOGE("%s: fail disable setScreenState; error=0x%X", __FUNCTION__, status);
+            ALOGE ("%s: fail disable SetScreenState; error=0x%X", __FUNCTION__, status);
         }
-    }
-    ALOGE("SecureElement::getInstance().isBusy() = 0x%x", SecureElement::getInstance().isBusy());
-    ALOGE("sIsSecElemSelected = 0x%x && (sHCEEnabled) 0x%x", sIsSecElemSelected, sHCEEnabled);
+    }*/
 
     // To support card emulation in screen off state.
     if (sIsSecElemSelected && (sHCEEnabled == false ))
@@ -1499,16 +1523,19 @@ void nfcManager_disableDiscovery (JNIEnv* e, jobject o)
                 ALOGE ("fail to start UICC listen");
         }
 
-        PeerToPeer::getInstance().setP2pListenMask(p2p_listen_mask & 0x05);
-        PeerToPeer::getInstance().enableP2pListening (true);
+        //PeerToPeer::getInstance().setP2pListenMask(p2p_listen_mask & 0x05);
+        //PeerToPeer::getInstance().enableP2pListening (true);
+        PeerToPeer::getInstance().enableP2pListening (false);
     }
     startRfDiscovery(true);
-#endif
-
+    //if nothing is active after this, then tell the controller to power down
+    //if (! PowerSwitch::getInstance ().setModeOff (PowerSwitch::DISCOVERY))
+        //PowerSwitch::getInstance ().setLevel (PowerSwitch::LOW_POWER);
+#else
     // if nothing is active after this, then tell the controller to power down
     if (! PowerSwitch::getInstance ().setModeOff (PowerSwitch::DISCOVERY))
         PowerSwitch::getInstance ().setLevel (PowerSwitch::LOW_POWER);
-
+#endif
     // We may have had RF field notifications that did not cause
     // any activate/deactive events. For example, caused by wireless
     // charging orbs. Those may cause us to go to sleep while the last
@@ -1997,6 +2024,13 @@ TheEnd:
 static void nfcManager_enableRoutingToHost(JNIEnv*, jobject)
 {
     ALOGD ("%s: enter", __FUNCTION__);
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    if (get_transcation_stat() == true)
+    {
+        ALOGD("Payment is in progress stopping enable/disable discovery");
+        return;
+    }
+#endif
     PowerSwitch::getInstance ().setLevel (PowerSwitch::FULL_POWER);
     PowerSwitch::getInstance ().setModeOn (PowerSwitch::HOST_ROUTING);
     if (sRfEnabled) {
@@ -2028,6 +2062,13 @@ static void nfcManager_enableRoutingToHost(JNIEnv*, jobject)
 static void nfcManager_disableRoutingToHost(JNIEnv*, jobject)
 {
     ALOGD ("%s: enter", __FUNCTION__);
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+    if (get_transcation_stat() == true)
+    {
+        ALOGD("Payment is in progress stopping enable/disable discovery");
+        return;
+    }
+#endif
     bool rfWasEnabled = false;
 
     if (PowerSwitch::getInstance ().getLevel() == PowerSwitch::LOW_POWER)
@@ -2902,6 +2943,8 @@ static JNINativeMethod gMethods[] =
 
     {"doDump", "()Ljava/lang/String;",
             (void *)nfcManager_doDump},
+    {"doSetScreenState", "(I)V",
+            (void *) nfcManager_doSetScreenState},
 
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
     {"getChipVer", "()I",
@@ -2911,7 +2954,6 @@ static JNINativeMethod gMethods[] =
             (void *) nfcManager_getSecureElementTechList},
     {"doSetSecureElementListenTechMask", "(I)V",
             (void *) nfcManager_setSecureElementListenTechMask},
-
     //Factory Test Code
     {"doPrbsOn", "(II)V",
             (void *) nfcManager_doPrbsOn},
@@ -3234,72 +3276,100 @@ static int nfcManager_doJcosDownload(JNIEnv* e, jobject o)
     return status;
 }
 
-
-void nfcManager_doSetScrnState(JNIEnv *e, jobject o, jint Enable)
-{
-    setScreenState(Enable  ? true : false);
-}
-
 void nfcManager_doSetVenConfigValue(JNIEnv *e, jobject o, jint venconfig)
 {
     /* Store the shutdown state */
     gGeneralPowershutDown = venconfig;
 }
 
+void nfcManager_doSetScrnState(JNIEnv *e, jobject o, jint Enable)
+{
+    SetScreenState(Enable);
+}
+
 bool isDiscoveryStarted()
 {
     return sRfEnabled;
 }
-
 /*******************************************************************************
- **
- ** Function:       start_timer
- **
- ** Description:    Starts the timer
- **
- ** Returns:        int .
- **
- *******************************************************************************/
-
-static int start_timer(void)
+**
+** Function:        StoreScreenState
+**
+** Description:     Sets  screen state
+**
+** Returns:         None
+**
+*******************************************************************************/
+static void StoreScreenState(int state)
 {
-    int ret = clock_gettime(CLOCK_MONOTONIC, &transaction_data.start_time);
-    if (ret == -1) {
-        ALOGE("start_timer(): clock_gettime failed");
-    }
-    return ret;
+    screenstate = state;
 }
 
+
 /*******************************************************************************
- **
- ** Function:       stop_timer
- **
- ** Description:    Stops the timer.
- **
- ** Returns:        UINT32 .
- **
- *******************************************************************************/
-static UINT32 stop_timer(void)
+**
+** Function:        getScreenState
+**
+** Description:     returns screen state
+**
+** Returns:         int
+**
+*******************************************************************************/
+int getScreenState()
 {
-    int ret = clock_gettime(CLOCK_MONOTONIC , &transaction_data.end_time);
-    if (ret == -1)
+    return screenstate;
+}
+#endif // NFC_NXP_NOT_OPEN_INCLUDED
+
+/*******************************************************************************
+**
+** Function:        nfcManager_doSetScreenState
+**
+** Description:     Set screen state
+**
+** Returns:         None
+**
+*******************************************************************************/
+static void nfcManager_doSetScreenState (JNIEnv* e, jobject o, jint state)
+{
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+
+    tNFA_STATUS status = NFA_STATUS_OK;
+
+    ALOGD ("%s: state = %d", __FUNCTION__, state);
+    if (get_transcation_stat() == true)
     {
-        ALOGE("stop_timer : clock_gettime failed");
-        return -1;
+        ALOGD("Payment is in progress stopping enable/disable discovery");
+        set_lastScreenStateRequest((eScreenState_t)state);
+        return;
+    }
+    int old = getScreenState();
+    if (old == state)
+    {
+        ALOGD("Screen state is not changed.");
+        return;
+    }
+    StoreScreenState(state);
+    if (state)
+    {
+        if (sRfEnabled)
+        {
+            // Stop RF discovery to reconfigure
+            startRfDiscovery(false);
+        }
+
+        status = SetScreenState(state);
+        if (status != NFA_STATUS_OK)
+        {
+            ALOGE ("%s: fail enable SetScreenState; error=0x%X", __FUNCTION__, status);
+        }
+        startRfDiscovery(true);
     }
 
-    transaction_data.end_time.tv_sec = (transaction_data.end_time.tv_sec -
-                                        transaction_data.start_time.tv_sec);
-    transaction_data.end_time.tv_nsec = (transaction_data.end_time.tv_nsec -
-                                         transaction_data.start_time.tv_nsec);
-    if (transaction_data.end_time.tv_nsec < 0)
-    {
-        transaction_data.end_time.tv_nsec += 10e8;
-        transaction_data.end_time.tv_sec -=1;
-    }
-    return ((transaction_data.end_time.tv_sec * 1000) +
-            (transaction_data.end_time.tv_nsec / 10e5) );
+#endif // NFC_NXP_NOT_OPEN_INCLUDED
 }
+
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
 /*******************************************************************************
  **
  ** Function:       get_last_request
@@ -3346,6 +3416,69 @@ static void set_transcation_stat(bool result)
 
 /*******************************************************************************
  **
+ ** Function:       get_lastScreenStateRequest
+ **
+ ** Description:    returns the last screen state request
+ **
+ ** Returns:        last screen state request event (eScreenState_t) .
+ **
+ *******************************************************************************/
+static eScreenState_t get_lastScreenStateRequest()
+{
+    ALOGD ("%s: %d", __FUNCTION__, transaction_data.last_screen_state_request);
+    return(transaction_data.last_screen_state_request);
+}
+
+/*******************************************************************************
+ **
+ ** Function:       set_lastScreenStateRequest
+ **
+ ** Description:    stores the last screen state request
+ **
+ ** Returns:        None .
+ **
+ *******************************************************************************/
+static void set_lastScreenStateRequest(eScreenState_t status)
+{
+    ALOGD ("%s: current=%d, new=%d", __FUNCTION__, transaction_data.last_screen_state_request, status);
+    transaction_data.last_screen_state_request = status;
+}
+
+
+/*******************************************************************************
+**
+** Function:        switchBackTimerProc_transaction
+**
+** Description:     Callback function for interval timer.
+**
+** Returns:         None
+**
+*******************************************************************************/
+static void cleanupTimerProc_transaction(union sigval)
+{
+    ALOGD("Inside cleanupTimerProc");
+    cleanup_timer();
+}
+
+void cleanup_timer()
+{
+    ALOGD("Inside cleanup");
+    set_transcation_stat(false);
+    pthread_t transaction_thread;
+    int irret = -1;
+    ALOGD ("%s", __FUNCTION__);
+
+    /* Transcation is done process the last request*/
+    irret = pthread_create(&transaction_thread, NULL, enableThread, NULL);
+    if (irret != 0)
+    {
+        ALOGD("Unable to create the thread");
+    }
+    transaction_data.current_transcation_state = NFA_TRANS_DM_RF_TRANS_END;
+}
+
+/*******************************************************************************
+ **
  ** Function:       get_transcation_stat
  **
  ** Description:    returns the transaction status whether it is in progress
@@ -3380,54 +3513,45 @@ void checkforTranscation(UINT8 connEvent, void* eventData)
             transaction_data.current_transcation_state);
     switch(connEvent)
     {
-    case NFA_ACTIVATED_EVT:
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
-        if ((eventTrans_data ->activated.activate_ntf.intf_param.type == 0x00) ||
-            (eventTrans_data ->activated.activate_ntf.intf_param.type == NCI_INTERFACE_ESE_DIRECT))
-#else
-       if (eventTrans_data ->activated.activate_ntf.intf_param.type == 0x00)
-#endif
-        {
-            transaction_data.current_transcation_state = NFA_TRANS_ACTIVATED_EVT;
-        }
-        break;
     case NFA_EE_ACTION_EVT:
-        if (transaction_data.current_transcation_state == NFA_TRANS_ACTIVATED_EVT)
+        if (transaction_data.current_transcation_state == NFA_TRANS_DEFAULT)
         {
             transaction_data.current_transcation_state = NFA_TRANS_EE_ACTION_EVT;
+            set_transcation_stat(true);
+        }
+        break;
+    case NFA_TRANS_CE_ACTIVATED:
+        if (transaction_data.current_transcation_state == NFA_TRANS_DEFAULT)
+        {
+            transaction_data.current_transcation_state = NFA_TRANS_CE_ACTIVATED;
+            set_transcation_stat(true);
+        }
+        break;
+    case NFA_TRANS_CE_DEACTIVATED:
+        if (transaction_data.current_transcation_state == NFA_TRANS_CE_ACTIVATED)
+        {
+            transaction_data.current_transcation_state = NFA_TRANS_CE_DEACTIVATED;
         }
         break;
     case NFA_TRANS_DM_RF_FIELD_EVT:
         if (eventDM_Conn_data->rf_field.status == NFA_STATUS_OK &&
-                transaction_data.current_transcation_state == NFA_TRANS_EE_ACTION_EVT
-                && eventDM_Conn_data->rf_field.rf_field_status == 0)
+                (transaction_data.current_transcation_state == NFA_TRANS_EE_ACTION_EVT ||
+                transaction_data.current_transcation_state == NFA_TRANS_CE_DEACTIVATED) &&
+                eventDM_Conn_data->rf_field.rf_field_status == 0)
         {
             ALOGD("start_timer");
             transaction_data.current_transcation_state = NFA_TRANS_DM_RF_FIELD_EVT_OFF;
-            if (start_timer() == -1)
-            {
-                ALOGE("Timer activation failed: returned -1");
-                transaction_data.current_transcation_state == NFA_TRANS_DM_RF_TRANS_END;
-            }
+            scleanupTimerProc_transaction.set (50, cleanupTimerProc_transaction);
         }
         else if (eventDM_Conn_data->rf_field.status == NFA_STATUS_OK &&
                 transaction_data.current_transcation_state == NFA_TRANS_DM_RF_FIELD_EVT_OFF &&
                 eventDM_Conn_data->rf_field.rf_field_status == 1)
         {
             transaction_data.current_transcation_state = NFA_TRANS_DM_RF_FIELD_EVT_ON;
-            time_millisec = stop_timer();
-            if (time_millisec <= TRANSACTION_TIMER_VALUE)
-            {
-                ALOGD("Payment is in progress hold the screen on/off request "
-                        "timediff = 0x%d", time_millisec);
-                set_transcation_stat(true);
-                transaction_data.current_transcation_state = NFA_TRANS_DM_RF_TRANS_START;
-            }
-            else
-            {
-                ALOGD("Payment not in progress reset the state to NFA_TRANS_DEFAULT");
-                transaction_data.current_transcation_state = NFA_TRANS_DM_RF_TRANS_END;
-            }
+            ALOGD("Payment is in progress hold the screen on/off request ");
+            transaction_data.current_transcation_state = NFA_TRANS_DM_RF_TRANS_START;
+            scleanupTimerProc_transaction.kill ();
+
         }
         else if (eventDM_Conn_data->rf_field.status == NFA_STATUS_OK &&
                 transaction_data.current_transcation_state == NFA_TRANS_DM_RF_TRANS_START &&
@@ -3435,28 +3559,14 @@ void checkforTranscation(UINT8 connEvent, void* eventData)
         {
             ALOGD("Transcation is done");
             transaction_data.current_transcation_state = NFA_TRANS_DM_RF_TRANS_PROGRESS;
-            /* Transcation is done process the last request */
-            irret = pthread_create(&transaction_thread, NULL, enableThread, NULL);
-            if (irret == 0)
-            {
-                ALOGD("Thread is created ");
-            }
-            else
-            {
-                transaction_data.current_transcation_state = NFA_TRANS_DM_RF_TRANS_END;
-                ALOGD("Unable to create the thread");
-            }
+            set_transcation_stat(false);
+            cleanup_timer();
         }
         break;
     default:
         break;
     }
-    if (transaction_data.current_transcation_state == NFA_TRANS_DM_RF_TRANS_END)
-    {
-        set_transcation_stat(false);
-        transaction_data.current_transcation_state = NFA_TRANS_DEFAULT;
-        memset(&transaction_data, 0x00, sizeof(Transcation_Check_t));
-    }
+
     ALOGD ("%s: exit; event=0x%X transaction_data.current_transcation_state = 0x%x", __FUNCTION__, connEvent,
             transaction_data.current_transcation_state);
 }
@@ -3475,7 +3585,25 @@ void *enableThread(void *arg)
     ALOGD ("%s: enter", __FUNCTION__);
     usleep(50000);
     char last_request = get_last_request();
+    eScreenState_t last_screen_state_request = get_lastScreenStateRequest();
     set_transcation_stat(false);
+    bool screen_lock_flag = false;
+    bool disable_discovery = false;
+    if (last_screen_state_request != NFA_SCREEN_STATE_DEFAULT)
+    {
+        ALOGD("update last screen state request: %d", last_screen_state_request);
+        nfcManager_doSetScreenState(NULL, NULL, last_screen_state_request);
+        if (last_screen_state_request == 3)
+            screen_lock_flag = true;
+        if (last_screen_state_request == 2)
+            nfcManager_enableRoutingToHost(NULL,NULL);
+        if (last_screen_state_request == 1)
+            nfcManager_disableRoutingToHost(NULL,NULL);
+    }
+    else
+    {
+        ALOGD("No request pending");
+    }
     if (last_request == 1)
     {
         ALOGD("send the last request enable");
@@ -3485,19 +3613,21 @@ void *enableThread(void *arg)
     {
         ALOGD("send the last request disable");
         nfcManager_disableDiscovery(NULL, NULL);
+        disable_discovery = true;
     }
-    else
+    if (screen_lock_flag && disable_discovery)
     {
-        ALOGD("No request pending");
+
+        startRfDiscovery(true);
     }
-    transaction_data.current_transcation_state = NFA_TRANS_DM_RF_TRANS_END;
-    transaction_data.current_transcation_state = NFA_TRANS_DEFAULT;
+    screen_lock_flag = false;
+    disable_discovery = false;
     memset(&transaction_data, 0x00, sizeof(Transcation_Check_t));
-    pthread_exit(NULL);
     ALOGD ("%s: exit", __FUNCTION__);
+    pthread_exit(NULL);
     return NULL;
 }
-#endif
+#endif // NFC_NXP_NOT_OPEN_INCLUDED
 
 
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
@@ -3657,7 +3787,8 @@ void checkforNfceeConfig()
 sCheckNfceeFlag = 0;
 
 }
-#endif
+#endif // CHECK_FOR_NFCEE_CONFIGURATION
+#endif // NFC_NXP_NOT_OPEN_INCLUDED
 
 #if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
 
@@ -3943,7 +4074,6 @@ static void nfcManager_doSetEEPROM(JNIEnv* e, jobject o, jbyteArray val)
     return;
 }
 
-#endif
-#endif
+#endif // NFC_NXP_NOT_OPEN_INCLUDED
 }
 /* namespace android */
