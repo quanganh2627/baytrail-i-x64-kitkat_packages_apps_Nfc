@@ -33,7 +33,7 @@ extern "C"
 
 namespace android
 {
-extern  void  checkforTranscation(UINT8 connEvent, void* eventData );
+    extern  void  checkforTranscation(UINT8 connEvent, void* eventData );
 }
 
 void *stop_reader_event_handler_async(void *data);
@@ -306,9 +306,9 @@ bool RoutingManager::addAidRouting(const UINT8* aid, UINT8 aidLen, int route)
 
     ALOGD("%s: enter, mDefaultEe:%x", fn, current_handle);
     SecureElement::getInstance().activate(current_handle);
-    if (power == NFA_EE_PWR_STATE_NONE)
+    if ((power & 0x0F) == NFA_EE_PWR_STATE_NONE)
     {
-        power = NFA_EE_PWR_STATE_ON;
+        power |= NFA_EE_PWR_STATE_ON;
     }
     SyncEventGuard guard(SecureElement::getInstance().mAidAddRemoveEvent);
     tNFA_STATUS nfaStat = NFA_EeAddAidRouting(handle, aidLen, (UINT8*) aid, power);
@@ -535,12 +535,18 @@ void RoutingManager::stackCallback (UINT8 event, tNFA_CONN_EVT_DATA* eventData)
 
     case NFA_CE_ACTIVATED_EVT:
         {
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            android::checkforTranscation(NFA_CE_ACTIVATED_EVT, (void *)eventData);
+#endif
             routingManager.notifyActivated();
         }
         break;
     case NFA_DEACTIVATED_EVT:
     case NFA_CE_DEACTIVATED_EVT:
         {
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+            android::checkforTranscation(NFA_CE_DEACTIVATED_EVT, (void *)eventData);
+#endif
             routingManager.notifyDeactivated();
         }
         break;

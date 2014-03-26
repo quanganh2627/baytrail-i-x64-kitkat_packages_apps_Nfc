@@ -343,6 +343,7 @@ public class NfcService implements DeviceHostListener {
     private AidRoutingManager mAidRoutingManager;
     private AidFilter mAidFilter ;
     private ToastHandler mToastHandler;
+    private boolean mClearNextTapDefault;
 
     private static NfcService sService;
 
@@ -494,6 +495,7 @@ public class NfcService implements DeviceHostListener {
         if (!mIsHceCapable || SE_BROADCASTS_WITH_HCE) {
             sendMessage(NfcService.MSG_SE_LISTEN_ACTIVATED, null);
         }
+        mClearNextTapDefault =  mAidCache.isNextTapOverriden();
         // Regardless of what happens, if we're having a tap again
         // activity up, close it
         Intent intent = new Intent(TapAgainDialog.ACTION_CLOSE);
@@ -506,7 +508,9 @@ public class NfcService implements DeviceHostListener {
         if (!mIsHceCapable || SE_BROADCASTS_WITH_HCE) {
             sendMessage(NfcService.MSG_SE_LISTEN_DEACTIVATED, null);
         }
-        if (mAidCache != null) {
+
+        // Fix for the CTS issue " Two Conflicting non-payment Services (Emulator)
+        if (mAidCache != null && mClearNextTapDefault) {
             mAidCache.setDefaultForNextTap(ActivityManager.getCurrentUser(), null);
         }
     }
@@ -2899,12 +2903,28 @@ public class NfcService implements DeviceHostListener {
                 // Perform applyRouting() in AsyncTask to serialize blocking calls
                 int screenState = SCREEN_STATE_OFF;
                 if (action.equals(Intent.ACTION_SCREEN_OFF)) {
-                    screenState = SCREEN_STATE_OFF;
+                    if (mScreenState != SCREEN_STATE_OFF) {
+                        screenState = SCREEN_STATE_OFF;
+                    }
+                    mDeviceHost.doSetScreenState(1);
                 } else if (action.equals(Intent.ACTION_SCREEN_ON)) {
                     screenState = mKeyguard.isKeyguardLocked() ?
                             SCREEN_STATE_ON_LOCKED : SCREEN_STATE_ON_UNLOCKED;
-                } else if (action.equals(Intent.ACTION_USER_PRESENT)) {
+                    if (screenState == SCREEN_STATE_ON_LOCKED
+                            && mScreenState == SCREEN_STATE_OFF
+                            || (screenState == SCREEN_STATE_ON_UNLOCKED
+                            && mScreenState == SCREEN_STATE_ON_UNLOCKED)) {
+
+                        if (screenState == SCREEN_STATE_ON_LOCKED
+                                && mScreenState == SCREEN_STATE_OFF) {
+                            mDeviceHost.doSetScreenState(3);
+                        }
+                        return;
+                    }
+                } else if (action.equals(Intent.ACTION_USER_PRESENT) &&
+                         mScreenState != SCREEN_STATE_ON_UNLOCKED) {
                     screenState = SCREEN_STATE_ON_UNLOCKED;
+                    mDeviceHost.doSetScreenState(2);
                 }
                 if (mHostEmulationManager != null) {
                     mHostEmulationManager.setScreenState(screenState);

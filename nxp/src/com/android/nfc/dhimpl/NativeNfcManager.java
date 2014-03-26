@@ -197,6 +197,11 @@ public class NativeNfcManager implements DeviceHost {
     }
 
     @Override
+    public void doSetScreenState(int mScreenState) {
+        // empty function
+    }
+
+    @Override
     public native void enableDiscovery();
 
     @Override

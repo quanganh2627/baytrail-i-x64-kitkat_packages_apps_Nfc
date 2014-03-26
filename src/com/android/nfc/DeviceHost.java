@@ -225,6 +225,8 @@ public interface DeviceHost {
 
     public String getName();
 
+    public void doSetScreenState(int mScreenState);
+
     public void enableDiscovery();
 
     public void disableDiscovery();

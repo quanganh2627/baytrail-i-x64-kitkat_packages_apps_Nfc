@@ -69,6 +69,7 @@ bool isWiredMode_Enable()
                     ALOGE("%s: Enable eSE-mode set ON", fn);
                     se.SecEle_Modeset(0x01);
                     usleep(2000 * 1000);
+                    stat = NFA_STATUS_OK;
                     break;
                 }
                 else
@@ -170,7 +171,10 @@ bool transceive(UINT8* xmitBuffer, INT32 xmitBufferSize, UINT8* recvBuffer,
     SecureElement &se = SecureElement::getInstance();
     ALOGD("%s: enter", fn);
 
-    stat = se.transceive(xmitBuffer,
+    /* Temp fix for jcop download */
+    se.SecEle_Modeset(0x01);
+    usleep(100 * 1000);
+    stat = se.transceive (xmitBuffer,
                           xmitBufferSize,
                           recvBuffer,
                           recvBufferMaxSize,

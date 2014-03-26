@@ -1512,11 +1512,8 @@ void SecureElement::notifyListenModeState (bool isActivated) {
         e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifySeListenActivated);
     }
     else {
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
-        //work-around for ISIS, don't tirgger in case of deativate event
-#else
+
         e->CallVoidMethod (mNativeData->manager, android::gCachedNfcManagerNotifySeListenDeactivated);
-#endif
     }
 
     if (e->ExceptionCheck())
