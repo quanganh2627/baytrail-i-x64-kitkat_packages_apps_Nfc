@@ -498,7 +498,9 @@ static jboolean com_android_nfc_NativeNfcSecureElement_doDisconnect(JNIEnv *e, j
    uint8_t          GpioGetValue[3] = {0x00, 0xF8, 0x2B};
    uint8_t          GpioSetValue[4];
    uint8_t          gpioValue;
-    nfc_jni_native_data* nat = nfc_jni_get_nat_ext(e);
+
+   /* Retrieve native structure address */
+   nfc_jni_native_data* nat = nfc_jni_get_nat_ext(e);
 
    /* Create the local semaphore */
    if (!nfc_cb_data_init(&cb_data, NULL))
