@@ -121,7 +121,6 @@ extern "C" {
 /* Maximum byte length of an AID. */
 #define AID_MAXLEN                        16
 
-//davis_JBMR2
 /*set to 255 ms for the transceive time out */
 #define MIFARE_DESFIRE_TIMEOUT_CUSTOM  0xFF
 
@@ -270,7 +269,6 @@ void nfc_jni_get_technology_tree(JNIEnv* e, phLibNfc_RemoteDevList_t* devList, u
                         ScopedLocalRef<jintArray>* handleList,
                         ScopedLocalRef<jintArray>* typeList);
 
-//davis_JBMR2
 uint32_t nfc_jni_get_timeout(JNIEnv *e,jobject o);
 uint32_t getMifareRawTimeout();
 uint32_t getIsoXchgTimeout();
@@ -278,9 +276,6 @@ uint32_t getFelicaTimeout();
 /* P2P */
 phLibNfc_Handle nfc_jni_get_p2p_device_handle(JNIEnv *e, jobject o);
 jshort nfc_jni_get_p2p_device_mode(JNIEnv *e, jobject o);
-#ifdef HOST_EMULATION
-void set_CEFromHost_mHandle(phLibNfc_Handle mHandle);
-#endif
 
 /* TAG */
 jint nfc_jni_get_connected_technology(JNIEnv *e, jobject o);
@@ -298,9 +293,7 @@ int register_com_android_nfc_NativeLlcpConnectionlessSocket(JNIEnv *e);
 int register_com_android_nfc_NativeLlcpServiceSocket(JNIEnv *e);
 int register_com_android_nfc_NativeLlcpSocket(JNIEnv *e);
 int register_com_android_nfc_NativeNfcSecureElement(JNIEnv *e);
-#ifdef HOST_EMULATION
-int register_com_android_nfc_NativeNfcCEFromHost(JNIEnv *e);
-#endif
+
 jshort nfc_jni_get_connected_technology_sak(JNIEnv *e, jobject o);
 } // namespace android
 

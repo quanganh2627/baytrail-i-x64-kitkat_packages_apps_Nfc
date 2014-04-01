@@ -51,10 +51,7 @@ jint JNI_OnLoad(JavaVM *jvm, void *reserved)
       return JNI_ERR;
    if (android::register_com_android_nfc_NativeNfcSecureElement(e) == -1)
       return JNI_ERR;
-#ifdef HOST_EMULATION
-   if (android::register_com_android_nfc_NativeNfcCEFromHost(e) == -1)
-      return JNI_ERR;
-#endif
+
    return JNI_VERSION_1_6;
 }
 
@@ -72,7 +69,7 @@ JNIEnv *nfc_get_env()
     JNIEnv *e;
     if (vm->GetEnv((void **)&e, JNI_VERSION_1_6) != JNI_OK) {
         ALOGE("Current thread is not attached to VM");
-        nfc_jni_native_data* nat =nfc_jni_get_nat_ext(NULL);//davis_JBMR2
+        nfc_jni_native_data* nat =nfc_jni_get_nat_ext(NULL);
         if(TRUE == nat->isWiredMode) {
            sleep(22);
         }
@@ -279,7 +276,6 @@ jint nfc_jni_get_connected_technology(JNIEnv *e, jobject o)
 
 }
 static double nxp_nfc_timeout_factor = (256 * 16) / 13560.0;
-//davis_JBMR2
 uint32_t nfc_jni_get_timeout(JNIEnv *e, jobject o){
      int tech = 0;
      uint16_t timeout = 0;
@@ -350,7 +346,6 @@ jint nfc_jni_get_connected_technology_libnfc_type(JNIEnv *e, jobject o)
    }
    return connectedLibNfcType;
 }
-//davis_JBMR2[rewurite using scope]
 jshort nfc_jni_get_connected_technology_sak(JNIEnv *e, jobject o)
 {
    jclass c;

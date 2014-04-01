@@ -391,7 +391,7 @@ public class NativeNfcManager implements DeviceHost {
             case (TagTechnology.MIFARE_ULTRALIGHT):
                 return 253; // PN544 RF buffer = 255 bytes, subtract two for CRC
             case (TagTechnology.NFC_B):
-                return 0; // PN544 does not support transceive of raw NfcB
+                return 253; // to do
             case (TagTechnology.NFC_V):
                 return 253; // PN544 RF buffer = 255 bytes, subtract two for CRC
             case (TagTechnology.ISO_DEP):
