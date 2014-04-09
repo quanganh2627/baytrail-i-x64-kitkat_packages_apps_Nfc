@@ -596,9 +596,11 @@ public class NfcService implements DeviceHostListener {
         mClfIsPn547 = "pn547".equals(SystemProperties.get("ro.nfc.nfcc", ""));
 
         mSeSupport = 0;
-        if (SystemProperties.getBoolean("ro.nfc.se.uicc", false) == true)
+        if (SystemProperties.getBoolean("ro.spid.nfc.se.uicc",
+                SystemProperties.getBoolean("ro.nfc.se.uicc", false)))
             mSeSupport |= SE_UICC_SUPPORTED;
-        if (SystemProperties.getBoolean("ro.nfc.se.ese", false) == true)
+        if (SystemProperties.getBoolean("ro.spid.nfc.se.ese",
+                SystemProperties.getBoolean("ro.nfc.se.ese", false)))
             mSeSupport |= SE_ESE_SUPPORTED;
 
         mPrefs = mContext.getSharedPreferences(PREF, Context.MODE_PRIVATE);
@@ -609,9 +611,12 @@ public class NfcService implements DeviceHostListener {
 
         mIsDebugBuild = "userdebug".equals(Build.TYPE) || "eng".equals(Build.TYPE);
 
-        mUseCsm = Boolean.parseBoolean(
-                SystemProperties.get("ro.nfc.use_csm", "true")); // true  -> use CSM to request system clock
-                                                                 // false -> use dedicated clock (e.g. xtal)
+        // Depending on the value of ro[.spid].nfc.clk we may need to use CSM:
+        //   pll -> use the system clock from the modem.
+        //   xtal -> use internal cristal.
+        mUseCsm = "pll".equals(SystemProperties.get("ro.spid.nfc.clk",
+                SystemProperties.get("ro.nfc.clk", "xtal")));
+
         if (mUseCsm) {
 
             Log.d(TAG, "Using system reference clock");
