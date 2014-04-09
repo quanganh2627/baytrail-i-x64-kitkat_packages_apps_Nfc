@@ -2,7 +2,6 @@ VOB_COMPONENTS := external/libnfc-nci/src
 NFA := $(VOB_COMPONENTS)/nfa
 NFC := $(VOB_COMPONENTS)/nfc
 
-PN547_EXT_PATH := vendor/intel/hardware/nfc/nxp/pn547/extns
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 LOCAL_PRELINK_MODULE := false
@@ -58,14 +57,6 @@ LOCAL_CFLAGS += -DNFCC_PN547 -DNFC_NXP_NOT_OPEN_INCLUDED=TRUE
 #Gemalto SE Support
 LOCAL_CFLAGS += -DGEMATO_SE_SUPPORT -DCHECK_FOR_NFCEE_CONFIGURATION
 LOCAL_CFLAGS += -DNXP_UICC_ENABLE
-
-LOCAL_C_INCLUDES += \
-    $(PN547_EXT_PATH)/inc \
-    $(PN547_EXT_PATH)/src/common \
-    $(PN547_EXT_PATH)/src/mifare \
-    $(PN547_EXT_PATH)/src/utils \
-    $(PN547_EXT_PATH)/src \
-    $(VOB_COMPONENTS)/adaptation
 
 LOCAL_SHARED_LIBRARIES += \
     libnfc_nci_extns
