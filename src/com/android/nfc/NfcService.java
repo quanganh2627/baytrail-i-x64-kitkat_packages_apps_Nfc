@@ -2831,6 +2831,9 @@ public class NfcService implements DeviceHostListener {
 
                 mRoutingWakeLock.acquire();
                 try {
+                    if (mState == NfcAdapter.STATE_ON) {
+                        mDeviceHost.doSetScreenState(mScreenState);
+                    }
                     applyRouting(false);
                 } finally {
                     mRoutingWakeLock.release();
@@ -2906,25 +2909,12 @@ public class NfcService implements DeviceHostListener {
                     if (mScreenState != SCREEN_STATE_OFF) {
                         screenState = SCREEN_STATE_OFF;
                     }
-                    mDeviceHost.doSetScreenState(1);
                 } else if (action.equals(Intent.ACTION_SCREEN_ON)) {
                     screenState = mKeyguard.isKeyguardLocked() ?
                             SCREEN_STATE_ON_LOCKED : SCREEN_STATE_ON_UNLOCKED;
-                    if (screenState == SCREEN_STATE_ON_LOCKED
-                            && mScreenState == SCREEN_STATE_OFF
-                            || (screenState == SCREEN_STATE_ON_UNLOCKED
-                            && mScreenState == SCREEN_STATE_ON_UNLOCKED)) {
-
-                        if (screenState == SCREEN_STATE_ON_LOCKED
-                                && mScreenState == SCREEN_STATE_OFF) {
-                            mDeviceHost.doSetScreenState(3);
-                        }
-                        return;
-                    }
                 } else if (action.equals(Intent.ACTION_USER_PRESENT) &&
                          mScreenState != SCREEN_STATE_ON_UNLOCKED) {
                     screenState = SCREEN_STATE_ON_UNLOCKED;
-                    mDeviceHost.doSetScreenState(2);
                 }
                 if (mHostEmulationManager != null) {
                     mHostEmulationManager.setScreenState(screenState);
