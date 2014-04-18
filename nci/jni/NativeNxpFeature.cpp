@@ -177,12 +177,12 @@ tNFA_STATUS SetScreenState(jint state)
         ALOGD("Set Screen OFF");
         screen_off_state_cmd_buff[3] = 0x01;
     }
-    else if (state == 2)
+    else if (state == 3)
     {
         ALOGD("Clear Screen ON");
         screen_off_state_cmd_buff[3] = 0x00;
     }
-    else if (state == 3)
+    else if (state == 2)
     {
         ALOGD("Screen ON-locked");
         screen_off_state_cmd_buff[3] = 0x02;
