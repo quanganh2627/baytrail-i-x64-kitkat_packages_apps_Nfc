@@ -772,6 +772,7 @@ void RoutingManager::nfaEeCallback (tNFA_EE_EVT event, tNFA_EE_CBACK_DATA* event
     case NFA_EE_ROUT_ERR_EVT:
         {
             ALOGD("%s: NFA_EE_ROUT_ERR_EVT  status=%u", fn, eventData->status);
+            routingManager.handleError(0);
         }
         break;
 #endif
