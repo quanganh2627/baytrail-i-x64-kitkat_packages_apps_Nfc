@@ -93,7 +93,7 @@ public class SmartcardProxy {
         // to receive this intent.
         PackageManager pm = mContext.getPackageManager();
         List<ResolveInfo> list =
-            pm.queryBroadcastReceivers(intent, PackageManager.MATCH_DEFAULT_ONLY);
+            pm.queryBroadcastReceivers(intent, 0);
 
             if (list.size() == 0) {
                 Log.i(TAG, "NO application to handle this NFC event");
