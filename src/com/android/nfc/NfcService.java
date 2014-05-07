@@ -188,6 +188,11 @@ public class NfcService implements DeviceHostListener {
     static final int SCREEN_STATE_ON_LOCKED = 2;
     static final int SCREEN_STATE_ON_UNLOCKED = 3;
 
+    // UICC state, used by mUiccState
+    static final int UICC_STATE_UNKNOWN  = 0;
+    static final int UICC_STATE_ABSENT   = 1;
+    static final int UICC_STATE_PRESENT  = 2;
+
     // Copied from com.android.nfc_extras to avoid library dependency
     // Must keep in sync with com.android.nfc_extras
     static final int ROUTE_OFF = 1;
@@ -267,9 +272,8 @@ public class NfcService implements DeviceHostListener {
     private final long SE_UICC_SUPPORTED = 1;
     private final long SE_ESE_SUPPORTED = 2;
 
-    private boolean mIsLocked = false;
-    private boolean mSimAbsent = false;
-    private boolean mSimUnknown = false;
+    private int     mUiccState = UICC_STATE_UNKNOWN;
+
     // NFC Execution Environment
     // fields below are protected by this
     private NativeNfcSecureElement mSecureElement;
@@ -2910,21 +2914,19 @@ public class NfcService implements DeviceHostListener {
                     || action.equals(Intent.ACTION_USER_PRESENT)) {
                 // Perform applyRouting() in AsyncTask to serialize blocking calls
                 int screenState = SCREEN_STATE_OFF;
-                if (action.equals(Intent.ACTION_SCREEN_OFF)) {
-                    if (mScreenState != SCREEN_STATE_OFF) {
-                        screenState = SCREEN_STATE_OFF;
-                    }
-                } else if (action.equals(Intent.ACTION_SCREEN_ON)) {
+                if (action.equals(Intent.ACTION_SCREEN_ON)) {
                     screenState = mKeyguard.isKeyguardLocked() ?
                             SCREEN_STATE_ON_LOCKED : SCREEN_STATE_ON_UNLOCKED;
-                } else if (action.equals(Intent.ACTION_USER_PRESENT) &&
-                         mScreenState != SCREEN_STATE_ON_UNLOCKED) {
+                } else if (action.equals(Intent.ACTION_USER_PRESENT)) {
                     screenState = SCREEN_STATE_ON_UNLOCKED;
                 }
-                if (mHostEmulationManager != null) {
-                    mHostEmulationManager.setScreenState(screenState);
+
+                if (screenState != mScreenState) {
+                    if (mHostEmulationManager != null) {
+                        mHostEmulationManager.setScreenState(screenState);
+                    }
+                    new ApplyRoutingTask().execute(Integer.valueOf(screenState));
                 }
-                new ApplyRoutingTask().execute(Integer.valueOf(screenState));
             } else if (action.equals(Intent.ACTION_AIRPLANE_MODE_CHANGED)) {
                 boolean isAirplaneModeOn = intent.getBooleanExtra("state", false);
                 // Query the airplane mode from Settings.System just to make sure that
@@ -2947,29 +2949,27 @@ public class NfcService implements DeviceHostListener {
                 String stateExtra = intent.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE);
                 Log.d(TAG, "Sim State Changed: " + stateExtra);
 
+                int newUiccState = mUiccState;
+
                 if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(stateExtra)) {
-                    mIsLocked = false;
-                    mSimAbsent = true;
+                    newUiccState = UICC_STATE_ABSENT;
+                } else if (IccCardConstants.INTENT_VALUE_ICC_UNKNOWN.equals(stateExtra)) {
+                    newUiccState = UICC_STATE_UNKNOWN;
+                } else if (IccCardConstants.INTENT_VALUE_ICC_LOCKED.equals(stateExtra)) {
+                    newUiccState = UICC_STATE_PRESENT;
+                } else if (IccCardConstants.INTENT_VALUE_ICC_IMSI.equals(stateExtra)) {
+                    newUiccState = UICC_STATE_PRESENT;
                 }
 
-                if (IccCardConstants.INTENT_VALUE_ICC_UNKNOWN.equals(stateExtra)) {
-                    mSimUnknown = true;
-                }
+                if (mUiccState != newUiccState) {
+                    mUiccState = newUiccState;
+                    if ((mState == NfcAdapter.STATE_ON)
+                            && (mPrefs.getBoolean(PREF_FIRST_BOOT, true) == false)
+                            && (!isNfcEnablingOrShuttingDown())) {
 
-                else if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(stateExtra) ||
-                       IccCardConstants.INTENT_VALUE_ICC_LOCKED.equals(stateExtra) ||
-                       IccCardConstants.INTENT_VALUE_ICC_IMSI.equals(stateExtra)) {
-
-                    if ((mState == NfcAdapter.STATE_ON) &&
-                            (mPrefs.getBoolean(PREF_FIRST_BOOT, true) == false) &&
-                            (!isNfcEnablingOrShuttingDown()) && !mIsLocked && (mSimAbsent || mSimUnknown)) {
                         // Reset NFC service
+                        Log.i(TAG, "Reset NFC due to new Sim State: " + newUiccState);
                         new EnableDisableTask().execute(TASK_RESET);
-                        mSimUnknown = false;
-                    }
-
-                    if (IccCardConstants.INTENT_VALUE_ICC_LOCKED.equals(stateExtra)) {
-                        mIsLocked = true;
                     }
                 }
             } else if (action.equals(Intent.ACTION_USER_SWITCHED)) {
