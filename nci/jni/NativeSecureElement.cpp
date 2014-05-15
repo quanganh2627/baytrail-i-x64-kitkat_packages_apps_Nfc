@@ -266,12 +266,6 @@ static jbyteArray nativeNfcSecureElement_doTransceive (JNIEnv* e, jobject, jint 
 #endif
     ScopedByteArrayRW bytes(e, data);
 
-#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
-    /* Temp fix for jcop download*/
-    SecureElement::getInstance().SecEle_Modeset(0x01);
-    usleep(100 * 1000);
-#endif
-
     ALOGD("%s: enter; handle=0x%X; buf len=%zu", __FUNCTION__, handle, bytes.size());
     SecureElement::getInstance().transceive(reinterpret_cast<UINT8*>(&bytes[0]), bytes.size(), recvBuffer, recvBufferMaxSize, recvBufferActualSize, timeout);
 

@@ -535,6 +535,8 @@ public:
 
     jint getGenericEseId(tNFA_HANDLE handle);
 
+    jint getSETechnology(tNFA_HANDLE eeHandle);
+
     SyncEvent       mRoutingEvent;
     SyncEvent       mAidAddRemoveEvent;
     SyncEvent       mUiccListenEvent;

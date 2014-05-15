@@ -167,7 +167,8 @@ void RoutingManager::setRouting(bool isHCEEnabled)
     tNFA_HANDLE ee_handle = NFA_EE_HANDLE_DH;
     UINT8 i, count;
     static const char fn [] = "SecureElement::setRouting";
-    unsigned long num = 0;
+    unsigned long num = 0x03; /* Enable TechA and TechB routing for Host. */
+    unsigned long max_tech_mask = 0x03;
 
     if (!mIsDirty)
     {
@@ -179,12 +180,14 @@ void RoutingManager::setRouting(bool isHCEEnabled)
     if (mDefaultEe == 0x01) //eSE
     {
         ee_handle = 0x4C0;
+        max_tech_mask = SecureElement::getInstance().getSETechnology(ee_handle);
         num = NFA_TECHNOLOGY_MASK_A;
         ALOGD("%s:ESE_LISTEN_MASK=0x0%d;", __FUNCTION__, num);
     }
     else if (mDefaultEe == 0x02) //UICC
     {
         ee_handle = 0x402;
+        max_tech_mask = SecureElement::getInstance().getSETechnology(ee_handle);
         if ((GetNumValue(NAME_UICC_LISTEN_TECH_MASK, &num, sizeof(num))))
         {
             ALOGD("%s:UICC_LISTEN_MASK=0x0%d;", __FUNCTION__, num);
@@ -211,7 +214,8 @@ void RoutingManager::setRouting(bool isHCEEnabled)
             ALOGE("Fail to set default proto routing");
         }
 
-        nfaStat =  NFA_EeSetDefaultTechRouting(ee_handle, num & 0x07, num & 0x07, num & 0x07);
+        nfaStat =  NFA_EeSetDefaultTechRouting(ee_handle, num & max_tech_mask,
+                num & max_tech_mask, num & max_tech_mask);
         if (nfaStat == NFA_STATUS_OK)
         {
             mRoutingEvent.wait();

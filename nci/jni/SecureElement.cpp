@@ -1128,14 +1128,10 @@ bool SecureElement::connectEE ()
         return (false);
     }
 
-#if (NFC_NXP_NOT_OPEN_INCLUDED == FALSE)
-    /*
-     * Since virtual mode during wired mode is supported
-     * Do not need to stop the discovery
-     */
     // Disable RF discovery completely while the DH is connected
     android::startRfDiscovery(false);
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED != TRUE)
     // Disable UICC idle timeout while the DH is connected
     android::setUiccIdleTimeout (false);
 #endif
@@ -2262,6 +2258,35 @@ tNFA_EE_INFO *SecureElement::findEeByHandle (tNFA_HANDLE eeHandle)
     return (NULL);
 }
 
+#if (NFC_NXP_NOT_OPEN_INCLUDED == TRUE)
+jint SecureElement::getSETechnology(tNFA_HANDLE eeHandle)
+{
+    int tech_mask = 0x00;
+    tNFA_STATUS nfaStat = NFA_STATUS_FAILED;
+    static const char fn [] = "SecureElement::getSETechnology";
+
+    tNFA_EE_INFO* eeinfo = findEeByHandle(eeHandle);
+
+    if (eeinfo != NULL) {
+        if (eeinfo->la_protocol != 0x00)
+        {
+            tech_mask |= 0x01;
+        }
+
+        if (eeinfo->lb_protocol != 0x00)
+        {
+            tech_mask |= 0x02;
+        }
+
+        if (eeinfo->lf_protocol != 0x00)
+        {
+            tech_mask |= 0x04;
+        }
+    }
+
+    return tech_mask;
+}
+#endif
 
 /*******************************************************************************
 **
