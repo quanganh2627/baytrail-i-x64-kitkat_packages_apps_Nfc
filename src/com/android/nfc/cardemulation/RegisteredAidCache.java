@@ -458,7 +458,7 @@ public class RegisteredAidCache implements RegisteredServicesCache.Callback {
                  for (String aid : group.getAids()) {
                      if (DBG) Log.d(TAG, "generateAidTree AID: " + aid);
                      // Check if a mapping exists for this AID
-                    if (!service.isOnHost() && mRoutingManager.GetVzwCache().isAidPresent(aid)) {
+                    if (mRoutingManager.GetVzwCache().isAidPresent(aid)) {
                         if (mRoutingManager.GetVzwCache().IsAidAllowed(aid)) {
                             Log.d(TAG, "vzw AID: " + aid);
                         } else {

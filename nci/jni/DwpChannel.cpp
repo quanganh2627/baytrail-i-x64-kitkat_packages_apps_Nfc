@@ -171,9 +171,6 @@ bool transceive(UINT8* xmitBuffer, INT32 xmitBufferSize, UINT8* recvBuffer,
     SecureElement &se = SecureElement::getInstance();
     ALOGD("%s: enter", fn);
 
-    /* Temp fix for jcop download */
-    se.SecEle_Modeset(0x01);
-    usleep(100 * 1000);
     stat = se.transceive (xmitBuffer,
                           xmitBufferSize,
                           recvBuffer,

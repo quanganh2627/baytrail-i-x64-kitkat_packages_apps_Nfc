@@ -307,10 +307,10 @@ typedef struct Transcation_Check
     struct timespec end_time;
     bool trans_in_progress;
     char last_request;
+    char last_routing_request;
     eScreenState_t last_screen_state_request;
     eTranscation_events_t current_transcation_state;
     struct nfc_jni_native_data *transaction_nat;
-
 }Transcation_Check_t;
 
 static Transcation_Check_t transaction_data;
@@ -319,6 +319,8 @@ void nfcManager_disableDiscovery (JNIEnv*, jobject);
 static bool get_transcation_stat(void);
 static void set_transcation_stat(bool result);
 static void set_last_request(char status, struct nfc_jni_native_data *nat);
+static void set_last_routing_request(int state);
+static char get_last_routing_request();
 static char get_last_request(void);
 void *enableThread(void *arg);
 static eScreenState_t get_lastScreenStateRequest(void);
@@ -2028,6 +2030,7 @@ static void nfcManager_enableRoutingToHost(JNIEnv*, jobject)
     if (get_transcation_stat() == true)
     {
         ALOGD("Payment is in progress stopping enable/disable discovery");
+        set_last_routing_request(1);
         return;
     }
 #endif
@@ -2066,6 +2069,7 @@ static void nfcManager_disableRoutingToHost(JNIEnv*, jobject)
     if (get_transcation_stat() == true)
     {
         ALOGD("Payment is in progress stopping enable/disable discovery");
+        set_last_routing_request(2);
         return;
     }
 #endif
@@ -3444,6 +3448,35 @@ static void set_lastScreenStateRequest(eScreenState_t status)
     transaction_data.last_screen_state_request = status;
 }
 
+/*******************************************************************************
+ **
+ ** Function:       get_last_routing_request
+ **
+ ** Description:    returns the last routing request
+ **
+ ** Returns:        char
+ **
+ *******************************************************************************/
+static char get_last_routing_request()
+{
+    ALOGD ("%s: %d", __FUNCTION__, transaction_data.last_routing_request);
+    return (transaction_data.last_routing_request);
+}
+
+/*******************************************************************************
+ **
+ ** Function:       set_last_routing_request
+ **
+ ** Description:    stores the last routing request
+ **
+ ** Returns:        None .
+ **
+ *******************************************************************************/
+static void set_last_routing_request(int state)
+{
+    ALOGD ("%s: :%d,", __FUNCTION__, transaction_data.last_routing_request);
+    transaction_data.last_routing_request = state;
+}
 
 /*******************************************************************************
 **
@@ -3516,6 +3549,11 @@ void checkforTranscation(UINT8 connEvent, void* eventData)
     case NFA_EE_ACTION_EVT:
         if (transaction_data.current_transcation_state == NFA_TRANS_DEFAULT)
         {
+            if (getScreenState() == 1)
+            {
+                if (!sP2pActive && eventDM_Conn_data->rf_field.status == NFA_STATUS_OK)
+                    SecureElement::getInstance().notifyRfFieldEvent (true);
+            }
             transaction_data.current_transcation_state = NFA_TRANS_EE_ACTION_EVT;
             set_transcation_stat(true);
         }
@@ -3523,6 +3561,11 @@ void checkforTranscation(UINT8 connEvent, void* eventData)
     case NFA_TRANS_CE_ACTIVATED:
         if (transaction_data.current_transcation_state == NFA_TRANS_DEFAULT)
         {
+            if (getScreenState() == 1)
+            {
+                if (!sP2pActive && eventDM_Conn_data->rf_field.status == NFA_STATUS_OK)
+                    SecureElement::getInstance().notifyRfFieldEvent (true);
+            }
             transaction_data.current_transcation_state = NFA_TRANS_CE_ACTIVATED;
             set_transcation_stat(true);
         }
@@ -3585,6 +3628,7 @@ void *enableThread(void *arg)
     ALOGD ("%s: enter", __FUNCTION__);
     usleep(50000);
     char last_request = get_last_request();
+    char last_routing_request = get_last_routing_request();
     eScreenState_t last_screen_state_request = get_lastScreenStateRequest();
     set_transcation_stat(false);
     bool screen_lock_flag = false;
@@ -3595,15 +3639,15 @@ void *enableThread(void *arg)
         nfcManager_doSetScreenState(NULL, NULL, last_screen_state_request);
         if (last_screen_state_request == 3)
             screen_lock_flag = true;
-        if (last_screen_state_request == 2)
-            nfcManager_enableRoutingToHost(NULL,NULL);
-        if (last_screen_state_request == 1)
-            nfcManager_disableRoutingToHost(NULL,NULL);
     }
     else
     {
         ALOGD("No request pending");
     }
+    if (last_routing_request == 1)
+        nfcManager_enableRoutingToHost(NULL,NULL);
+    else if (last_routing_request == 2)
+        nfcManager_disableRoutingToHost(NULL,NULL);
     if (last_request == 1)
     {
         ALOGD("send the last request enable");

@@ -2509,7 +2509,7 @@ public class NfcService implements DeviceHostListener {
                         tag.startPresenceChecking(presenceCheckDelay);
                         dispatchTagEndpoint(tag, readerParams);
                     } else {
-                        if (tag.reconnect()) {
+                        if (isNfcEnabled() && tag.reconnect()) {
                             tag.startPresenceChecking(presenceCheckDelay);
                             dispatchTagEndpoint(tag, readerParams);
                         } else {
