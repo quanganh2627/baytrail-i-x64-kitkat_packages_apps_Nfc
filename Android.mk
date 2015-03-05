@@ -16,6 +16,9 @@ LOCAL_SRC_FILES += \
 LOCAL_PACKAGE_NAME := Nfc
 LOCAL_CERTIFICATE := platform
 
+LOCAL_STATIC_JAVA_LIBRARIES :=  CwsServiceMgr \
+                                CsmClient
+
 LOCAL_JNI_SHARED_LIBRARIES  := libnfc_jni
 
 LOCAL_PROGUARD_ENABLED := disabled
@@ -38,6 +41,9 @@ LOCAL_SRC_FILES += \
 LOCAL_PACKAGE_NAME := NfcNci
 LOCAL_OVERRIDES_PACKAGES := Nfc
 LOCAL_CERTIFICATE := platform
+
+LOCAL_STATIC_JAVA_LIBRARIES :=  CwsServiceMgr \
+                                CsmClient
 
 LOCAL_JNI_SHARED_LIBRARIES := libnfc_nci_jni
 

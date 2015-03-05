@@ -62,6 +62,7 @@ import android.os.PowerManager;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.provider.Settings;
@@ -86,6 +87,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
+
+import com.intel.cws.cwsservicemanager.CsmException;
+import com.intel.cws.cwsservicemanagerclient.CsmClient;
+import com.intel.cws.cwsservicemanagerclient.CsmEfBootstrap;
 
 public class NfcService implements DeviceHostListener {
     static final boolean DBG = false;
@@ -214,6 +219,8 @@ public class NfcService implements DeviceHostListener {
     boolean mIsDebugBuild;
     boolean mIsHceCapable;
     boolean mPollingPaused;
+    boolean mUseCsm;             // if set, we'll use CSM to request system clock (e.g. from modem)
+    boolean mIsWaitingModemUp;
 
     private NfcDispatcher mNfcDispatcher;
     private PowerManager mPowerManager;
@@ -227,6 +234,8 @@ public class NfcService implements DeviceHostListener {
 
     private int mUserId;
     private static NfcService sService;
+
+    private CsmClientNfc mCsmClient;
 
     public static NfcService getInstance() {
         return sService;
@@ -346,6 +355,25 @@ public class NfcService implements DeviceHostListener {
 
         mIsDebugBuild = "userdebug".equals(Build.TYPE) || "eng".equals(Build.TYPE);
 
+        // Depending on the value of ro[.spid].nfc.clk we may need to use CSM:
+        //   pll -> use the system clock from the modem.
+        //   xtal -> use internal cristal.
+        mUseCsm = "pll".equals(SystemProperties.get("ro.spid.nfc.clk",
+                SystemProperties.get("ro.nfc.clk", "xtal")));
+
+        if (mUseCsm) {
+
+            Log.d(TAG, "Using system reference clock");
+
+            try {
+                mCsmClient = new CsmClientNfc(mContext);
+            } catch (CsmException e) {
+                Log.d(TAG, "Unable to create CsmClientNfc", e);
+            }
+        } else {
+            Log.d(TAG, "Using dedicated reference clock");
+        }
+
         mPowerManager = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
 
         mRoutingWakeLock = mPowerManager.newWakeLock(
@@ -353,7 +381,6 @@ public class NfcService implements DeviceHostListener {
 
         mKeyguard = (KeyguardManager) mContext.getSystemService(Context.KEYGUARD_SERVICE);
         mUserManager = (UserManager) mContext.getSystemService(Context.USER_SERVICE);
-
         mScreenState = mScreenStateHelper.checkScreenState();
 
         ServiceManager.addService(SERVICE_NAME, mNfcAdapter);
@@ -521,7 +548,37 @@ public class NfcService implements DeviceHostListener {
             if (mState == NfcAdapter.STATE_ON) {
                 return true;
             }
+
+            if (mUseCsm) {
+                try {
+                    if (null != mCsmClient) {
+                        mIsWaitingModemUp = true;
+                        Log.d(TAG, "Waiting on modem up");
+                        mCsmClient.csmStartModem();
+                    } else {
+                        Log.e(TAG, "CsmClient is not available. Cannot enable NFC");
+                        return false;
+                    }
+                } catch (CsmException e) {
+                    switch (e.getCsmCause()) {
+                        case CsmException.CAUSE_MODEM_LOCK_FAILURE:
+                            Log.e(TAG, "Lock failure: "+ e.getMessage() +". Cannot enable NFC.");
+                            return false;
+                        case CsmException.CAUSE_MODEM_DEAD:
+                            Log.e(TAG, "Modem dead. Cannot enable NFC");
+                            return false;
+                        case CsmException.CAUSE_NO_MODEM:
+                            Log.e(TAG, "There's no modem on the board, skipping.");
+                            break;
+                        default:
+                            Log.e(TAG, "Unknown issue. Cannot enable NFC");
+                            return false;
+                    }
+                }
+            }
+
             Log.i(TAG, "Enabling NFC");
+            mIsWaitingModemUp = false;
             updateState(NfcAdapter.STATE_TURNING_ON);
 
             WatchDogThread watchDog = new WatchDogThread("enableInternal", INIT_WATCHDOG_MS);
@@ -605,6 +662,14 @@ public class NfcService implements DeviceHostListener {
 
             releaseSoundPool();
 
+            if (mUseCsm) {
+                try {
+                    mCsmClient.csmStop();
+                } catch (CsmException e) {
+                    Log.e(TAG, e.getMessage());
+                }
+            }
+
             return result;
         }
 
@@ -644,6 +709,35 @@ public class NfcService implements DeviceHostListener {
                     break;
                 case SOUND_ERROR:
                     mSoundPool.play(mErrorSound, 1.0f, 1.0f, 0, 0, 1.0f);
+                    break;
+            }
+        }
+    }
+
+    private class CsmClientNfc extends CsmClient {
+        public CsmClientNfc(Context context) throws CsmException {
+            super(context, CsmClientNfc.CSM_ID_NFC, CsmClientNfc.CSM_CLIENT_BIND);
+        }
+
+        @Override
+        public void csmClientModemUnavailable() {
+            super.csmClientModemUnavailable();
+
+            Log.d(TAG, "CSM::Modem not available, NFC state: " + mState);
+
+            switch (mState) {
+                case NfcAdapter.STATE_OFF:
+                    this.csmStop();
+                    break;
+                case NfcAdapter.STATE_ON:
+                case NfcAdapter.STATE_TURNING_ON:
+                    if (!mIsWaitingModemUp) {
+                        new EnableDisableTask().execute(TASK_DISABLE);
+                        new EnableDisableTask().execute(TASK_ENABLE);
+                    }
+                    break;
+                case NfcAdapter.STATE_TURNING_OFF:
+                default:
                     break;
             }
         }
